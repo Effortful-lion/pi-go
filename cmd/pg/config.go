@@ -26,22 +26,22 @@ func configDirs() []string {
 	home, err := os.UserHomeDir()
 	dirs := []string{"."}
 	if err == nil {
-		dirs = append(dirs, filepath.Join(home, ".pi-go"))
+		dirs = append(dirs, filepath.Join(home, ".pg-go"))
 	}
 	return dirs
 }
 
 // loadConfig 从以下路径按优先级搜索配置文件：
-//  1. ./.pi-go.yaml (当前目录)
-//  2. ~/.pi-go/config.yaml (用户目录)
+//  1. ./.pg-go.yaml (当前目录)
+//  2. ~/.pg-go/config.yaml (用户目录)
 // 无配置文件时返回零值配置。
 func loadConfig() *PiConfig {
 	paths := []string{
-		".pi-go.yaml",
+		".pg-go.yaml",
 	}
 	home, err := os.UserHomeDir()
 	if err == nil {
-		paths = append(paths, filepath.Join(home, ".pi-go", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".pg-go", "config.yaml"))
 	}
 
 	var cfg PiConfig
@@ -58,13 +58,13 @@ func loadConfig() *PiConfig {
 	return &cfg
 }
 
-// saveConfig 将配置保存到 ~/.pi-go/config.yaml。
+// saveConfig 将配置保存到 ~/.pg-go/config.yaml。
 func saveConfig(cfg *PiConfig) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("无法获取用户目录: %w", err)
 	}
-	cfgDir := filepath.Join(home, ".pi-go")
+	cfgDir := filepath.Join(home, ".pg-go")
 	if err := os.MkdirAll(cfgDir, 0755); err != nil {
 		return fmt.Errorf("创建配置目录: %w", err)
 	}
@@ -72,7 +72,7 @@ func saveConfig(cfg *PiConfig) error {
 	if err != nil {
 		return fmt.Errorf("序列化配置: %w", err)
 	}
-	header := "# Pi Agent Configuration\n# See: pi config init --help\n\n"
+	header := "# PiGo Agent Configuration\n# See: pg config init --help\n\n"
 	return os.WriteFile(
 		filepath.Join(cfgDir, "config.yaml"),
 		append([]byte(header), data...),

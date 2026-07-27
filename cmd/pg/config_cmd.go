@@ -19,14 +19,14 @@ func runConfig(args []string) {
 		configShow()
 	case "set":
 		if len(args) < 3 {
-			fmt.Println("用法: pi config set <key> <value>")
+			fmt.Println("用法: pg config set <key> <value>")
 			fmt.Println("可设置的 key: provider, model, api_key, base_url, max_steps, temperature, max_tokens")
 			return
 		}
 		configSet(args[1], args[2])
 	default:
 		fmt.Printf("未知 config 子命令: %s\n", args[0])
-		fmt.Println("用法: pi config {init|show|set}")
+		fmt.Println("用法: pg config {init|show|set}")
 	}
 }
 
@@ -46,16 +46,16 @@ func configInit() {
 		fmt.Fprintf(os.Stderr, "创建配置文件失败: %v\n", err)
 		return
 	}
-	fmt.Printf("配置文件已创建: %s\n", home+"/.pi-go/config.yaml")
+	fmt.Printf("配置文件已创建: %s\n", home+"/.pg-go/config.yaml")
 	fmt.Println("请编辑该文件设置 api_key 和其他选项。")
 }
 
 func configShow() {
 	configPaths := []string{
-		".pi-go.yaml",
+		".pg-go.yaml",
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		configPaths = append(configPaths, home+"/.pi-go/config.yaml")
+		configPaths = append(configPaths, home+"/.pg-go/config.yaml")
 	}
 
 	found := false
@@ -70,7 +70,7 @@ func configShow() {
 	}
 
 	if !found {
-		fmt.Println("未找到配置文件。运行 pi config init 创建默认配置。")
+		fmt.Println("未找到配置文件。运行 pg config init 创建默认配置。")
 		return
 	}
 }
