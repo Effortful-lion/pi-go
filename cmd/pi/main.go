@@ -2,38 +2,53 @@
 //
 // Usage:
 //
-//	pi -api-key="sk-..."
-//	pi -model="gpt-4o-mini" -api-key="sk-..."
+//	pi                                    # 启动对话（默认命令）
+//	pi chat                               # 同上
+//	pi config init                        # 创建默认配置
+//	pi config show                        # 显示当前配置
+//	pi config set <key> <value>           # 修改配置
+//	pi version                            # 显示版本
+//	pi help                               # 显示帮助
 //
-// Environment variables:
+// Flags (仅 chat 命令):
 //
-//	OPENAI_API_KEY    API key (used when -api-key is not set)
-//	PI_PROVIDER       LLM provider (default: openai)
-//	PI_MODEL          Model ID (default: gpt-4o)
-//	PI_BASE_URL       Custom API base URL
-//	PI_SYSTEM_PROMPT  System prompt
-//	PI_MAX_STEPS      Max tool-calling steps (default: 10)
-//	PI_TEMPERATURE    Sampling temperature (default: 0.7)
-//	PI_MAX_TOKENS     Max output tokens (default: 0 = no limit)
+//	-model="gpt-4o"        模型 ID
+//	-api-key="sk-..."      API Key
+//	-provider="openai"     LLM 提供商 (openai/anthropic/google)
+//	-base-url=""           自定义 API 地址
+//	-system-prompt=""      系统提示词
+//	-max-steps=10          工具调用最大轮数
+//	-temperature=0.7       采样温度
+//	-max-tokens=0          最大输出 token 数
+//	-session=""            Session 名称（恢复对话）
+//
+// 参数优先级: 命令行 > 环境变量 > 配置文件 > 默认值
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
-
-	"github.com/Effortful-lion/pi-go/agent"
-	"github.com/Effortful-lion/pi-go/ai/providers/openai"
-	"github.com/Effortful-lion/pi-go/tui"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 const defaultSystemPrompt = `You are Pi Agent, an AI coding assistant.
 You help with writing code, debugging, answering technical questions, and more.
 Be concise, helpful, and use tools when appropriate.`
+
+// ChatFlags chat 命令的命令行参数。
+type ChatFlags struct {
+	Provider     string
+	Model        string
+	APIKey       string
+	BaseURL      string
+	SystemPrompt string
+	MaxSteps     int
+	Temperature  float64
+	MaxTokens    int
+	Session      string
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -43,107 +58,78 @@ func main() {
 }
 
 func run() error {
-	// 命令行参数
-	var (
-		provider     string
-		model        string
-		apiKey       string
-		baseURL      string
-		systemPrompt string
-		maxSteps     int
-		temperature  float64
-		maxTokens    int
-		showVersion  bool
-	)
+	// 子命令路由
+	args := os.Args[1:]
+	if len(args) == 0 {
+		return runChatCmd(args)
+	}
 
-	flag.StringVar(&provider, "provider", "openai", "LLM provider")
-	flag.StringVar(&model, "model", "gpt-4o", "Model ID")
-	flag.StringVar(&apiKey, "api-key", "", "API key")
-	flag.StringVar(&baseURL, "base-url", "", "Custom API base URL")
-	flag.StringVar(&systemPrompt, "system-prompt", "", "System prompt")
-	flag.IntVar(&maxSteps, "max-steps", 10, "Max tool-calling steps")
-	flag.Float64Var(&temperature, "temperature", 0.7, "Sampling temperature")
-	flag.IntVar(&maxTokens, "max-tokens", 0, "Max output tokens (0 = no limit)")
-	flag.BoolVar(&showVersion, "version", false, "Show version")
-	flag.Parse()
-
-	if showVersion {
+	switch args[0] {
+	case "chat":
+		return runChatCmd(args[1:])
+	case "config":
+		runConfig(args[1:])
+		return nil
+	case "version", "-version", "--version":
 		fmt.Println("pi version", version)
 		return nil
+	case "help", "-help", "--help":
+		printHelp()
+		return nil
+	default:
+		// 非子命令 → 可能是 -flag 直传形式
+		if len(args) > 0 && args[0][0] == '-' {
+			return runChatCmd(args)
+		}
+		printHelp()
+		return nil
 	}
-
-	// 环境变量回退：仅当命令行参数未显式设置时使用
-	resolveFromEnv(flag.CommandLine, map[string]string{
-		"api-key":       "OPENAI_API_KEY",
-		"provider":      "PI_PROVIDER",
-		"model":         "PI_MODEL",
-		"base-url":      "PI_BASE_URL",
-		"system-prompt": "PI_SYSTEM_PROMPT",
-		"max-steps":     "PI_MAX_STEPS",
-		"temperature":   "PI_TEMPERATURE",
-		"max-tokens":    "PI_MAX_TOKENS",
-	})
-
-	if apiKey == "" {
-		return fmt.Errorf("API key is required: set -api-key flag or OPENAI_API_KEY environment variable")
-	}
-
-	// 系统提示词默认值
-	if systemPrompt == "" {
-		systemPrompt = defaultSystemPrompt
-	}
-
-	// 创建 Provider
-	prov := openai.New(openai.Config{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-	})
-
-	// 创建 Agent
-	ag := agent.New(agent.Config{
-		Provider:     prov,
-		ModelID:      model,
-		SystemPrompt: systemPrompt,
-		MaxSteps:     maxSteps,
-		Temperature:  temperature,
-		MaxTokens:    maxTokens,
-	})
-
-	// 启动交互式对话
-	ui := tui.NewChatUI(ag)
-	return ui.Run(context.Background())
 }
 
-// resolveFromEnv 将未显式设置的 flag 从环境变量回退。
-// 通过 flag.Visit 判断哪些 flag 被显式设置过。
-func resolveFromEnv(fs *flag.FlagSet, mapping map[string]string) {
-	visited := make(map[string]bool)
-	fs.Visit(func(f *flag.Flag) {
-		visited[f.Name] = true
-	})
+func runChatCmd(args []string) error {
+	var flags ChatFlags
 
-	for name, envKey := range mapping {
-		if visited[name] {
-			continue
-		}
-		if val, ok := os.LookupEnv(envKey); ok && val != "" {
-			switch name {
-			case "max-steps":
-				if n, err := strconv.Atoi(val); err == nil {
-					fs.Set(name, val)
-					_ = n
-				}
-			case "temperature":
-				if _, err := strconv.ParseFloat(val, 64); err == nil {
-					fs.Set(name, val)
-				}
-			case "max-tokens":
-				if _, err := strconv.Atoi(val); err == nil {
-					fs.Set(name, val)
-				}
-			default:
-				fs.Set(name, val)
-			}
-		}
-	}
+	fs := flag.NewFlagSet("chat", flag.ExitOnError)
+	fs.StringVar(&flags.Provider, "provider", "", "LLM provider (openai/anthropic/google)")
+	fs.StringVar(&flags.Model, "model", "", "Model ID")
+	fs.StringVar(&flags.APIKey, "api-key", "", "API key")
+	fs.StringVar(&flags.BaseURL, "base-url", "", "Custom API base URL")
+	fs.StringVar(&flags.SystemPrompt, "system-prompt", "", "System prompt")
+	fs.IntVar(&flags.MaxSteps, "max-steps", 0, "Max tool-calling steps")
+	fs.Float64Var(&flags.Temperature, "temperature", 0, "Sampling temperature")
+	fs.IntVar(&flags.MaxTokens, "max-tokens", 0, "Max output tokens")
+	fs.StringVar(&flags.Session, "session", "", "Session name for resume")
+	fs.Parse(args)
+
+	cfg := loadConfig()
+	return runChat(cfg, &flags)
+}
+
+func printHelp() {
+	fmt.Print(`Pi Agent — AI Coding Assistant
+
+用法:
+  pi                           启动交互式对话（默认）
+  pi chat [flags]              同上
+  pi config init               创建默认配置文件 (~/.pi-go/config.yaml)
+  pi config show               显示当前配置
+  pi config set <key> <value>  修改配置项
+  pi version                   显示版本信息
+  pi help                      显示此帮助
+
+Flags:
+  -provider      LLM 提供商 (openai/anthropic/google)
+  -model         Model ID
+  -api-key       API Key
+  -base-url      自定义 API 地址
+  -system-prompt 系统提示词
+  -max-steps     工具调用最大轮数 (默认 10)
+  -temperature   采样温度 (默认 0.7)
+  -max-tokens    最大输出 token 数
+  -session       Session 名称（恢复对话）
+
+配置文件: ~/.pi-go/config.yaml 或 ./.pi-go.yaml
+环境变量: OPENAI_API_KEY, PI_PROVIDER, PI_MODEL, PI_BASE_URL,
+          PI_SYSTEM_PROMPT, PI_MAX_STEPS, PI_TEMPERATURE, PI_MAX_TOKENS
+`)
 }

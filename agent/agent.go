@@ -88,140 +88,178 @@ func New(cfg Config) *Agent {
 // Run 启动一轮 Agent 对话循环。
 //
 // 返回 Stream 事件通道。goroutine 中执行 LLM 调用和工具循环，
-// 完成后自动关闭通道。
+// 完成后自动关闭通道。userInput 为空时不追加任何消息（用于 Continue 场景）。
 func (a *Agent) Run(ctx context.Context, userInput string) Stream {
 	out := make(chan Event, 8)
 
-	// 将用户输入入队
-	a.messages = append(a.messages, ai.Message{
-		Role:    ai.RoleUser,
-		Content: userInput,
-	})
+	// 将用户输入入队（空输入跳过，用于 Continue 场景）
+	if userInput != "" {
+		a.messages = append(a.messages, ai.Message{
+			Role:    ai.RoleUser,
+			Content: userInput,
+		})
+	}
 
 	go func() {
 		defer close(out)
+		a.runLoop(ctx, out)
+	}()
 
-		for step := 1; step <= a.cfg.MaxSteps; step++ {
-			if err := ctx.Err(); err != nil {
+	return out
+}
+
+// Continue 在现有对话基础上继续，可选注入额外上下文。
+//
+// extraContext 非空时会被作为一条 user 消息追加到历史中。
+// 不追加新的空 user 消息，直接让 LLM 基于当前历史继续生成。
+func (a *Agent) Continue(ctx context.Context, extraContext string) Stream {
+	if extraContext != "" {
+		a.messages = append(a.messages, ai.Message{
+			Role:    ai.RoleUser,
+			Content: extraContext,
+		})
+	}
+	return a.Run(ctx, "")
+}
+
+// Reset 清空对话历史，保留 system prompt，开始新对话。
+func (a *Agent) Reset() {
+	a.messages = nil
+	if a.cfg.SystemPrompt != "" {
+		a.messages = append(a.messages, ai.Message{
+			Role:    ai.RoleSystem,
+			Content: a.cfg.SystemPrompt,
+		})
+	}
+}
+
+// Messages 返回当前对话历史快照（只读）。
+func (a *Agent) Messages() []ai.Message {
+	cp := make([]ai.Message, len(a.messages))
+	copy(cp, a.messages)
+	return cp
+}
+
+// runLoop Agent 对话循环核心，从 Run 和 Continue 中抽取。
+func (a *Agent) runLoop(ctx context.Context, out chan<- Event) {
+	for step := 1; step <= a.cfg.MaxSteps; step++ {
+		if err := ctx.Err(); err != nil {
+			out <- Event{Type: EventError, Step: step, Err: err}
+			return
+		}
+
+		out <- Event{Type: EventStepStart, Step: step}
+
+		// 构造 ai.Context
+		actx := a.buildContext()
+
+		// 调用 LLM
+		stream := a.cfg.Provider.Chat(ctx, a.cfg.ModelID, actx)
+
+		// 消费 ai.Event 流
+		textParts := make([]string, 0, 4)          // 累积文本片段
+		toolCallAcc := make(map[int]*ai.ToolCall)  // index → 累积中的工具调用
+		toolCallsOrdered := make([]*ai.ToolCall, 0) // 按 index 排序的最终工具调用列表
+		var lastUsage *ai.Usage
+
+		for evt := range stream {
+			switch evt.Type {
+			case ai.EventTextStart:
+				// 文本块开始，当前不做额外处理
+			case ai.EventTextDelta:
+				textParts = append(textParts, evt.Text)
+				out <- Event{Type: EventTextDelta, Text: evt.Text, Step: step}
+			case ai.EventTextEnd:
+				// 文本块结束
+			case ai.EventThinkingStart, ai.EventThinkingDelta, ai.EventThinkingEnd:
+				// 思考内容暂不暴露给上层，仅做日志记录
+			case ai.EventToolCallStart:
+				tc := &ai.ToolCall{
+					ID:   evt.TC.ID,
+					Name: evt.TC.Name,
+				}
+				toolCallAcc[evt.Index] = tc
+			case ai.EventToolCallDelta:
+				if tc, ok := toolCallAcc[evt.Index]; ok {
+					tc.Arguments += evt.TC.Arguments
+				}
+			case ai.EventToolCallEnd:
+				if tc, ok := toolCallAcc[evt.Index]; ok {
+					toolCallsOrdered = append(toolCallsOrdered, tc)
+					delete(toolCallAcc, evt.Index)
+				}
+			case ai.EventDone:
+				lastUsage = evt.Usage
+			case ai.EventError:
+				out <- Event{Type: EventError, Step: step, Err: evt.Err}
+				return
+			}
+		}
+
+		// 流结束，发送 StepEnd
+		out <- Event{Type: EventStepEnd, Step: step, Usage: lastUsage}
+
+		// 构建 AssistantMessage
+		assistantMsg := ai.Message{
+			Role: ai.RoleAssistant,
+		}
+		// 拼接文本
+		for _, p := range textParts {
+			assistantMsg.Content += p
+		}
+		// 添加工具调用 blocks
+		for _, tc := range toolCallsOrdered {
+			assistantMsg.Blocks = append(assistantMsg.Blocks, ai.ContentBlock{
+				Type:     ai.BlockToolCall,
+				ToolCall: tc,
+			})
+		}
+
+		// 没有工具调用 → 对话结束
+		if len(toolCallsOrdered) == 0 {
+			a.messages = append(a.messages, assistantMsg)
+			out <- Event{Type: EventDone, Step: step}
+			return
+		}
+
+		// 有工具调用 → 执行并注入结果
+		a.messages = append(a.messages, assistantMsg)
+
+		for _, tc := range toolCallsOrdered {
+			out <- Event{Type: EventToolCall, Step: step, ToolCall: tc}
+
+			t, ok := a.toolMap[tc.Name]
+			if !ok {
+				err := fmt.Errorf("unknown tool: %s", tc.Name)
+				logger.Warn(err.Error())
 				out <- Event{Type: EventError, Step: step, Err: err}
 				return
 			}
 
-			out <- Event{Type: EventStepStart, Step: step}
-
-			// 构造 ai.Context
-			actx := a.buildContext()
-
-			// 调用 LLM
-			stream := a.cfg.Provider.Chat(ctx, a.cfg.ModelID, actx)
-
-			// 消费 ai.Event 流
-			textParts := make([]string, 0, 4)                 // 累积文本片段
-			toolCallAcc := make(map[int]*ai.ToolCall)          // index → 累积中的工具调用
-			toolCallsOrdered := make([]*ai.ToolCall, 0)        // 按 index 排序的最终工具调用列表
-			var lastUsage *ai.Usage
-
-			for evt := range stream {
-				switch evt.Type {
-				case ai.EventTextStart:
-					// 文本块开始，当前不做额外处理
-				case ai.EventTextDelta:
-					textParts = append(textParts, evt.Text)
-					out <- Event{Type: EventTextDelta, Text: evt.Text, Step: step}
-				case ai.EventTextEnd:
-					// 文本块结束
-				case ai.EventThinkingStart, ai.EventThinkingDelta, ai.EventThinkingEnd:
-					// 思考内容暂不暴露给上层，仅做日志记录
-				case ai.EventToolCallStart:
-					tc := &ai.ToolCall{
-						ID:   evt.TC.ID,
-						Name: evt.TC.Name,
-					}
-					toolCallAcc[evt.Index] = tc
-				case ai.EventToolCallDelta:
-					if tc, ok := toolCallAcc[evt.Index]; ok {
-						tc.Arguments += evt.TC.Arguments
-					}
-				case ai.EventToolCallEnd:
-					if tc, ok := toolCallAcc[evt.Index]; ok {
-						toolCallsOrdered = append(toolCallsOrdered, tc)
-						delete(toolCallAcc, evt.Index)
-					}
-				case ai.EventDone:
-					lastUsage = evt.Usage
-				case ai.EventError:
-					out <- Event{Type: EventError, Step: step, Err: evt.Err}
-					return
-				}
+			result, execErr := t.Execute(ctx, tc.Arguments)
+			if execErr != nil {
+				result = fmt.Sprintf("tool execution error: %v", execErr)
+				logger.Warn("tool execution failed", lg.Fields{"tool": tc.Name, "error": execErr.Error()})
 			}
 
-			// 流结束，发送 StepEnd
-			out <- Event{Type: EventStepEnd, Step: step, Usage: lastUsage}
+			out <- Event{Type: EventToolResult, Step: step, ToolResult: result}
 
-			// 构建 AssistantMessage
-			assistantMsg := ai.Message{
-				Role: ai.RoleAssistant,
-			}
-			// 拼接文本
-			for _, p := range textParts {
-				assistantMsg.Content += p
-			}
-			// 添加工具调用 blocks
-			for _, tc := range toolCallsOrdered {
-				assistantMsg.Blocks = append(assistantMsg.Blocks, ai.ContentBlock{
-					Type:     ai.BlockToolCall,
-					ToolCall: tc,
-				})
-			}
-
-			// 没有工具调用 → 对话结束
-			if len(toolCallsOrdered) == 0 {
-				a.messages = append(a.messages, assistantMsg)
-				out <- Event{Type: EventDone, Step: step}
-				return
-			}
-
-			// 有工具调用 → 执行并注入结果
-			a.messages = append(a.messages, assistantMsg)
-
-			for _, tc := range toolCallsOrdered {
-				out <- Event{Type: EventToolCall, Step: step, ToolCall: tc}
-
-				t, ok := a.toolMap[tc.Name]
-				if !ok {
-					err := fmt.Errorf("unknown tool: %s", tc.Name)
-					logger.Warn(err.Error())
-					out <- Event{Type: EventError, Step: step, Err: err}
-					return
-				}
-
-				result, execErr := t.Execute(ctx, tc.Arguments)
-				if execErr != nil {
-					result = fmt.Sprintf("tool execution error: %v", execErr)
-					logger.Warn("tool execution failed", lg.Fields{"tool": tc.Name, "error": execErr.Error()})
-				}
-
-				out <- Event{Type: EventToolResult, Step: step, ToolResult: result}
-
-				// 注入工具结果到历史
-				a.messages = append(a.messages, ai.Message{
-					Role:       ai.RoleTool,
-					Content:    result,
-					ToolCallID: tc.ID,
-					ToolName:   tc.Name,
-				})
-			}
+			// 注入工具结果到历史
+			a.messages = append(a.messages, ai.Message{
+				Role:       ai.RoleTool,
+				Content:    result,
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+			})
 		}
+	}
 
-		// 超过 MaxSteps
-		out <- Event{
-			Type: EventError,
-			Step: a.cfg.MaxSteps,
-			Err:  errors.New("max steps exceeded: agent could not complete within the step limit"),
-		}
-	}()
-
-	return out
+	// 超过 MaxSteps
+	out <- Event{
+		Type: EventError,
+		Step: a.cfg.MaxSteps,
+		Err:  errors.New("max steps exceeded: agent could not complete within the step limit"),
+	}
 }
 
 // buildContext 从 Agent 当前状态构建 ai.Context。

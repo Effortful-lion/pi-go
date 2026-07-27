@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Effortful-lion/pi-go/agent"
+	"github.com/Effortful-lion/pi-go/ai"
 	"github.com/Effortful-lion/pi-go/lg"
 )
 
@@ -52,10 +54,11 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 
 	ui.printWelcome()
 
+	le := NewLineEditor(ui.prompt)
+
 	for {
-		// 显示提示符，读取输入
-		fmt.Fprint(ui.out, ui.prompt)
-		input, cancelled := EditLine(ui.prompt)
+		// 显示提示符，读取输入（可能多行）
+		input, cancelled := le.ReadLine()
 		if cancelled {
 			ui.printGoodbye()
 			return nil
@@ -65,6 +68,15 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 		if input == "" {
 			continue
 		}
+
+		// 命令处理
+		if strings.HasPrefix(input, "/") {
+			ui.handleCommand(ctx, input, le)
+			continue
+		}
+
+		// 添加到历史
+		le.AddHistory(input)
 
 		// 回显用户输入
 		ui.printUserInput(input)
@@ -78,6 +90,96 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 		// 对话结束，空行分隔
 		fmt.Fprintln(ui.out)
 	}
+}
+
+// handleCommand 处理斜杠命令。
+func (ui *ChatUI) handleCommand(ctx context.Context, input string, le *LineEditor) {
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return
+	}
+	switch parts[0] {
+	case "/clear":
+		ClearScreen()
+		ui.printWelcome()
+	case "/reset":
+		ui.agent.Reset()
+		le.AddHistory(input)
+		fmt.Fprintln(ui.out, Dim("对话已重置"))
+	case "/export":
+		path := "conversation.md"
+		if len(parts) > 1 {
+			path = parts[1]
+		}
+		if err := ui.ExportConversation(path); err != nil {
+			fmt.Fprintln(ui.out, Red(fmt.Sprintf("导出失败: %v", err)))
+		} else {
+			fmt.Fprintln(ui.out, Green(fmt.Sprintf("对话已导出到 %s", path)))
+		}
+	case "/help":
+		ui.printHelp()
+	default:
+		fmt.Fprintln(ui.out, Dim(fmt.Sprintf("未知命令: %s (使用 /help 查看命令列表)", parts[0])))
+	}
+	le.AddHistory(input)
+	fmt.Fprintln(ui.out)
+}
+
+// printHelp 打印命令帮助。
+func (ui *ChatUI) printHelp() {
+	fmt.Fprintln(ui.out)
+	fmt.Fprintln(ui.out, Bold("可用命令:"))
+	fmt.Fprintln(ui.out, Dim("  /clear      清屏"))
+	fmt.Fprintln(ui.out, Dim("  /reset      重置对话"))
+	fmt.Fprintln(ui.out, Dim("  /export     导出对话到文件"))
+	fmt.Fprintln(ui.out, Dim("  /help       显示帮助"))
+	fmt.Fprintln(ui.out, Dim(""))
+	fmt.Fprintln(ui.out, Dim("快捷键:"))
+	fmt.Fprintln(ui.out, Dim("  ↑↓          浏览历史记录"))
+	fmt.Fprintln(ui.out, Dim("  Alt+Enter   多行输入"))
+	fmt.Fprintln(ui.out, Dim("  Tab         路径补全"))
+	fmt.Fprintln(ui.out, Dim("  Ctrl+L      清屏"))
+	fmt.Fprintln(ui.out, Dim("  Ctrl+C      取消输入"))
+	fmt.Fprintln(ui.out, Dim("  Ctrl+D      退出"))
+}
+
+// ExportConversation 将对话历史导出为 Markdown 文件。
+func (ui *ChatUI) ExportConversation(path string) error {
+	messages := ui.agent.Messages()
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# Pi Agent 对话记录\n\n"))
+	b.WriteString(fmt.Sprintf("导出时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	b.WriteString("---\n\n")
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case ai.RoleSystem:
+			b.WriteString("## 系统提示\n\n```\n")
+			b.WriteString(msg.Content)
+			b.WriteString("\n```\n\n")
+		case ai.RoleUser:
+			b.WriteString("## 👤 用户\n\n")
+			b.WriteString(msg.Content)
+			b.WriteString("\n\n")
+		case ai.RoleAssistant:
+			b.WriteString("## 🤖 助手\n\n")
+			b.WriteString(msg.Content)
+			for _, block := range msg.Blocks {
+				if block.Type == ai.BlockToolCall && block.ToolCall != nil {
+					b.WriteString(fmt.Sprintf("\n\n**工具调用:** `%s`\n\n```json\n%s\n```\n",
+						block.ToolCall.Name, block.ToolCall.Arguments))
+				}
+			}
+			b.WriteString("\n")
+		case ai.RoleTool:
+			b.WriteString("### 工具结果\n\n```\n")
+			b.WriteString(msg.Content)
+			b.WriteString("\n```\n\n")
+		}
+	}
+
+	return os.WriteFile(path, []byte(b.String()), 0644)
 }
 
 // printWelcome 打印欢迎信息。
