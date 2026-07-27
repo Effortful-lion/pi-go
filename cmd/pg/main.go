@@ -1,4 +1,4 @@
-// Command pg is the PiGo Agent CLI — an interactive AI coding assistant.
+// Command pg is the Pi Agent CLI — an interactive AI coding assistant.
 //
 // Usage:
 //
@@ -33,7 +33,7 @@ import (
 
 const version = "1.0.0"
 
-const defaultSystemPrompt = `You are PiGo Agent, an AI coding assistant.
+const defaultSystemPrompt = `You are Pi Agent, an AI coding assistant.
 You help with writing code, debugging, answering technical questions, and more.
 Be concise, helpful, and use tools when appropriate.`
 
@@ -106,12 +106,12 @@ func runChatCmd(args []string) error {
 }
 
 func printHelp() {
-	fmt.Print(`PiGo Agent — AI Coding Assistant
+	fmt.Print(`Pi Agent — AI Coding Assistant
 
 用法:
   pg                           启动交互式对话（默认）
   pg chat [flags]              同上
-  pg config init               创建默认配置文件 (~/.pg-go/config.yaml)
+  pg config init               创建默认配置文件 (~/.pi-go/config.yaml)
   pg config show               显示当前配置
   pg config set <key> <value>  修改配置项
   pg version                   显示版本信息
@@ -128,7 +128,7 @@ Flags:
   -max-tokens    最大输出 token 数
   -session       Session 名称（恢复对话）
 
-配置文件: ~/.pg-go/config.yaml 或 ./.pg-go.yaml
+配置文件: ~/.pi-go/config.yaml 或 ./.pi-go.yaml
 环境变量: OPENAI_API_KEY, PI_PROVIDER, PI_MODEL, PI_BASE_URL,
           PI_SYSTEM_PROMPT, PI_MAX_STEPS, PI_TEMPERATURE, PI_MAX_TOKENS
 `)

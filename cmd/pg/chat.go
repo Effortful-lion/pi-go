@@ -33,7 +33,7 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 		model = "gpt-4o"
 	}
 	if apiKey == "" {
-		return fmt.Errorf("API key is required: set -api-key flag, OPENAI_API_KEY env var, or configure it in ~/.pg-go/config.yaml")
+		return fmt.Errorf("API key is required: set -api-key flag, OPENAI_API_KEY env var, or configure it in ~/.pi-go/config.yaml")
 	}
 	if systemPrompt == "" {
 		systemPrompt = defaultSystemPrompt

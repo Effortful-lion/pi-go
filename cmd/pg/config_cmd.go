@@ -46,16 +46,16 @@ func configInit() {
 		fmt.Fprintf(os.Stderr, "创建配置文件失败: %v\n", err)
 		return
 	}
-	fmt.Printf("配置文件已创建: %s\n", home+"/.pg-go/config.yaml")
+	fmt.Printf("配置文件已创建: %s\n", home+"/.pi-go/config.yaml")
 	fmt.Println("请编辑该文件设置 api_key 和其他选项。")
 }
 
 func configShow() {
 	configPaths := []string{
-		".pg-go.yaml",
+		".pi-go.yaml",
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		configPaths = append(configPaths, home+"/.pg-go/config.yaml")
+		configPaths = append(configPaths, home+"/.pi-go/config.yaml")
 	}
 
 	found := false
