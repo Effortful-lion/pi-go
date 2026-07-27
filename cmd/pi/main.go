@@ -31,7 +31,7 @@ import (
 	"os"
 )
 
-const version = "0.2.0"
+const version = "1.0.0"
 
 const defaultSystemPrompt = `You are Pi Agent, an AI coding assistant.
 You help with writing code, debugging, answering technical questions, and more.
