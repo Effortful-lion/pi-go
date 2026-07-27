@@ -31,6 +31,23 @@ func configDirs() []string {
 	return dirs
 }
 
+// configFileExists 检查是否存在任何配置文件。
+func configFileExists() bool {
+	paths := []string{
+		".pi-go.yaml",
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		paths = append(paths, filepath.Join(home, ".pi-go", "config.yaml"))
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // loadConfig 从以下路径按优先级搜索配置文件：
 //  1. ./.pi-go.yaml (当前目录)
 //  2. ~/.pi-go/config.yaml (用户目录)

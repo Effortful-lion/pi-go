@@ -25,7 +25,7 @@ Pi Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 Go �
   - [如何新增 LLM Provider](#如何新增-llm-provider)
   - [如何新增 Tool](#如何新增-tool)
   - [如何新增对话内命令](#如何新增对话内命令)
-  - [如何新增 pi 命令行](#如何新增-pi-命令行)
+  - [如何新增 pg 命令行](#如何新增-pg-命令行)
   - [扩展 TUI 能力](#扩展-tui-能力)
 - [API 参考](#api-参考)
 - [命令参考](#命令参考)
@@ -36,28 +36,98 @@ Pi Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 Go �
 
 ### 安装
 
+**方式 A：远程安装（一键，推荐）**
+
+直接安装到 `$GOPATH/bin/`，自动配置 PATH。安装完成后执行 `source ~/.zshrc` 使配置在当前会话生效。
+
 ```bash
-go install github.com/Effortful-lion/pi-go/cmd/pi@latest
+curl -fsSL https://raw.githubusercontent.com/Effortful-lion/pi-go/main/install.sh | bash
+source ~/.zshrc
 ```
+
+**方式 B：源码快速启动**
+
+已 clone 仓库后，一键编译安装并配置 PATH。执行完成后需 `source ~/.zshrc`。
+
+```bash
+./quickstart.sh
+source ~/.zshrc
+```
+
+**方式 C：手动安装**
+
+```bash
+# 远程安装
+go install github.com/Effortful-lion/pi-go/cmd/pg@latest
+
+# 或本地编译
+git clone https://github.com/Effortful-lion/pi-go.git
+cd pi-go
+go install ./cmd/pg/
+```
+
+> **PATH 配置：** 如果 `pg` 命令未找到，需要确保 `$GOPATH/bin` 在 PATH 中：
+> ```bash
+> echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+> source ~/.zshrc
+> ```
+
+### 卸载
+
+```bash
+./uninstall.sh
+```
+
+一键移除 `pg` 二进制、PATH 配置项、`~/.pi-go/` 数据目录。
 
 ### 配置 API Key
 
-```bash
-# 方式 1：环境变量（临时）
-export OPENAI_API_KEY="sk-..."
+**方式 A：环境变量（临时、不落盘）**
 
-# 方式 2：配置文件写入（永久）
-pi config init
-pi config set api_key "sk-..."
+```bash
+export OPENAI_API_KEY="sk-..."
 ```
+
+**方式 B：配置文件（永久、推荐）**
+
+```bash
+pg config init                         # 创建 ~/.pi-go/config.yaml
+pg config set api_key "sk-..."         # 写入 API Key
+pg config set provider anthropic       # 可选：切换默认 Provider
+pg config show                         # 查看当前配置
+```
+
+**方式 C：命令行参数（一次性、优先级最高）**
+
+```bash
+pg -api-key "sk-..." -provider openai -model gpt-4o
+```
+
+> 参数优先级：**命令行 > 环境变量 > 配置文件 > 默认值**
 
 ### 开始对话
 
 ```bash
-pi
+pg                                     # 默认 openai + gpt-4o
+pg -provider anthropic                 # 切换到 Claude
+pg -provider google                    # 切换到 Gemini
+pg -session mychat                     # 恢复之前的对话
 ```
 
-用 `pi -provider anthropic` 切换到 Claude，用 `pi -provider google` 切换到 Gemini。
+### 快速测试核心功能
+
+进入对话后（`> ` 提示符），可以依次体验以下能力：
+
+| 输入 | 验证目标 |
+|------|---------|
+| `写一段 Go hello world` | LLM 基本对话 |
+| `帮我看看当前目录有哪些文件` | File Tool（`list_dir`） |
+| `/clear` | 清屏 |
+| `/reset` | 重置对话上下文 |
+| `/export test.md` | 导出对话为 Markdown |
+| 按 `↑` `↓` | 历史记录浏览 |
+| 按 `Tab` | 文件路径补全 |
+| 按 `Ctrl+D` | 退出程序 |
 
 ---
 
@@ -65,7 +135,7 @@ pi
 
 ### 交互式对话 / 对话内命令
 
-启动 `pi` 后在 `> ` 提示符下直接输入问题即可。对话内支持以下命令：
+启动 `pg` 后在 `> ` 提示符下直接输入问题即可。对话内支持以下命令：
 
 | 命令 | 作用 |
 |------|------|
@@ -88,13 +158,13 @@ pi
 ### CLI 子命令
 
 ```bash
-pi                              # 启动交互式对话（默认）
-pi chat [flags]                 # 同上，带更多参数
-pi config init                  # 创建默认配置文件 (~/.pi-go/config.yaml)
-pi config show                  # 打印当前配置
-pi config set <key> <value>     # 修改配置项
-pi version                      # 打印版本号
-pi help                         # 打印命令行帮助
+pg                              # 启动交互式对话（默认）
+pg chat [flags]                 # 同上，带更多参数
+pg config init                  # 创建默认配置文件 (~/.pi-go/config.yaml)
+pg config show                  # 打印当前配置
+pg config set <key> <value>     # 修改配置项
+pg version                      # 打印版本号
+pg help                         # 打印命令行帮助
 ```
 
 **Chat Flags：**
@@ -198,7 +268,7 @@ func main() {
 
 ```
 pi-go/
-├── cmd/pi/             # CLI 入口：命令路由、配置解析
+├── cmd/pg/             # CLI 入口：命令路由、配置解析
 │   ├── main.go         #   子命令分发 (chat/config/version/help)
 │   ├── chat.go         #   chat 命令：组装 Provider + Agent + TUI
 │   ├── config.go       #   配置结构体 + YAML 加载/保存
@@ -236,7 +306,7 @@ pi-go/
 └── go.mod
 ```
 
-**依赖方向：** `cmd/pi` → `agent` + `tui` → `ai` + `tool` → `lg`
+**依赖方向：** `cmd/pg` → `agent` + `tui` → `ai` + `tool` → `lg`
 
 ---
 
@@ -318,7 +388,7 @@ func (p *provider) Chat(ctx context.Context, modelID string, ctx2 ai.Context) ai
 - 发起 HTTP SSE 请求，逐行解析服务端响应。
 - 将解析结果映射为 `ai.Event` 流式发送。
 
-**3.** 在 `cmd/pi/chat.go` 的 `newProvider` 中注册：
+**3.** 在 `cmd/pg/chat.go` 的 `newProvider` 中注册：
 
 ```go
 import "github.com/Effortful-lion/pi-go/ai/providers/azure"
@@ -334,13 +404,13 @@ func newProvider(name, apiKey, baseURL string) ai.Provider {
 }
 ```
 
-**4.** 可选：在 `cmd/pi/main.go` 的 help 中更新 provider 列表。
+**4.** 可选：在 `cmd/pg/main.go` 的 help 中更新 provider 列表。
 
 **5.** 编译测试：
 
 ```bash
 go build ./...
-pi -provider azure -model gpt-4o
+pg -provider azure -model gpt-4o
 ```
 
 ---
@@ -424,7 +494,7 @@ func NewHTTPTool() tool.Tool {
 }
 ```
 
-**2.** 在 `cmd/pi/chat.go` 的 `runChat` 中将新工具注入 Agent：
+**2.** 在 `cmd/pg/chat.go` 的 `runChat` 中将新工具注入 Agent：
 
 ```go
 import "github.com/Effortful-lion/pi-go/tool/builtin"
@@ -510,15 +580,15 @@ func (ui *ChatUI) handleCommand(ctx context.Context, input string, le *LineEdito
 
 ---
 
-### 如何新增 pi 命令行
+### 如何新增 pg 命令行
 
-**目标：** 增加如 `pi sessions list`、`pi tools` 这样的新 CLI 子命令或子命令组。
+**目标：** 增加如 `pg sessions list`、`pg tools` 这样的新 CLI 子命令或子命令组。
 
-CLI 主干在 `cmd/pi/main.go` 的 `run` 函数和 `switch args[0]` 中。
+CLI 主干在 `cmd/pg/main.go` 的 `run` 函数和 `switch args[0]` 中。
 
-#### 新增子命令组（如 `pi sessions`）
+#### 新增子命令组（如 `pg sessions`）
 
-**1.** 创建新的命令实现文件，如 `cmd/pi/sessions.go`：
+**1.** 创建新的命令实现文件，如 `cmd/pg/sessions.go`：
 
 ```go
 package main
@@ -545,7 +615,7 @@ func runSessionsCmd(args []string) {
         }
     case "delete":
         if len(args) < 2 {
-            fmt.Fprintln(os.Stderr, "用法: pi sessions delete <name>")
+            fmt.Fprintln(os.Stderr, "用法: pg sessions delete <name>")
             return
         }
         if err := agent.DeleteSession(args[1]); err != nil {
@@ -577,9 +647,9 @@ case "version", "-version", "--version":
 **3.** 在 `printHelp()` 中添加使用说明，编译后即可使用：
 
 ```bash
-go build ./cmd/pi/
-./pi sessions list
-./pi sessions delete mychat
+go build ./cmd/pg/
+./pg sessions list
+./pg sessions delete mychat
 ```
 
 ---
@@ -725,10 +795,10 @@ func (ui *ChatUI) ExportConversation(path string) error
 
 | 命令 | 描述 |
 |------|------|
-| `pi` | 启动交互式对话 |
-| `pi chat` | 同上（可带 flags） |
-| `pi config init` | 创建默认配置文件 |
-| `pi config show` | 显示当前配置 |
-| `pi config set <k> <v>` | 设置配置项 |
-| `pi version` | 显示版本 |
-| `pi help` | 显示帮助 |
+| `pg` | 启动交互式对话 |
+| `pg chat` | 同上（可带 flags） |
+| `pg config init` | 创建默认配置文件 |
+| `pg config show` | 显示当前配置 |
+| `pg config set <k> <v>` | 设置配置项 |
+| `pg version` | 显示版本 |
+| `pg help` | 显示帮助 |

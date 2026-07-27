@@ -47,8 +47,7 @@ func EnterRawMode() (restore func(), err error) {
 	newState.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG
 	// 关闭输入处理
 	newState.Iflag &^= syscall.ICRNL | syscall.INLCR | syscall.IGNCR
-	// 关闭输出处理
-	newState.Oflag &^= syscall.OPOST
+	// 保持输出处理开启，确保 \n 自动转为 \r\n
 	// 设置最小读取字节和超时
 	newState.Cc[syscall.VMIN] = 1
 	newState.Cc[syscall.VTIME] = 0
@@ -271,9 +270,6 @@ func (le *LineEditor) AddHistory(entry string) {
 // ReadLine 读取一行输入（可能包含多行，通过 Alt+Enter 换行）。
 // 返回输入文本和取消标志。
 func (le *LineEditor) ReadLine() (string, bool) {
-	CursorShow()
-	defer CursorHide()
-
 	// 编辑状态
 	lines := [][]rune{{}}
 	curLine := 0
@@ -626,6 +622,9 @@ func commonPrefix(strs []string) string {
 
 // renderAll 重绘制全部编辑行。
 func (le *LineEditor) renderAll(lines [][]rune, curLine, curCol int) {
+	// 先隐藏光标，避免闪烁
+	CursorHide()
+
 	fmt.Print("\r")
 	// 清除所有行，然后重绘
 	for i, line := range lines {
@@ -655,6 +654,11 @@ func (le *LineEditor) renderAll(lines [][]rune, curLine, curCol int) {
 		fmt.Print(strings.Repeat(" ", len(le.prompt)))
 	}
 	CursorForward(curCol)
+
+	// 显式刷写 stdout，确保内容立即显示
+	os.Stdout.Sync()
+
+	CursorShow()
 }
 
 // renderLine 渲染单行内容。
@@ -713,8 +717,8 @@ type keySeq []byte
 // readKey 从 stdin 读取一个按键序列。
 func readKey() keySeq {
 	var buf [6]byte
-	n, _ := os.Stdin.Read(buf[:1])
-	if n == 0 {
+	n, err := os.Stdin.Read(buf[:1])
+	if err != nil || n == 0 {
 		return keySeq{}
 	}
 
@@ -723,8 +727,8 @@ func readKey() keySeq {
 		return keySeq{first}
 	}
 
-	n2, _ := os.Stdin.Read(buf[1:])
-	if n2 == 0 {
+	n2, err := os.Stdin.Read(buf[1:])
+	if err != nil || n2 == 0 {
 		return keySeq{first}
 	}
 

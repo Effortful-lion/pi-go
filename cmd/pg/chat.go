@@ -15,6 +15,14 @@ import (
 
 // runChat 启动交互式 Chat 模式。
 func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
+	// 检查配置文件是否存在，不存在则提示
+	if !configFileExists() {
+		fmt.Fprintf(os.Stderr, "%s\n%s\n",
+			"提示: 未找到配置文件，建议先运行: pg config init",
+			"      也可以直接通过 -api-key 参数或 OPENAI_API_KEY 环境变量使用",
+		)
+	}
+
 	// 参数解析优先级：命令行 > 环境变量 > 配置文件 > 默认值
 	apiKey := resolveString(cfg, "api-key", cliFlags.APIKey, "OPENAI_API_KEY")
 	provider := resolveString(cfg, "provider", cliFlags.Provider, "PI_PROVIDER")
