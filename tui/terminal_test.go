@@ -65,6 +65,29 @@ func TestStyleText_ZeroColor(t *testing.T) {
 	}
 }
 
+func TestUtf8ByteLen(t *testing.T) {
+	tests := []struct {
+		name string
+		b    byte
+		want int
+	}{
+		{"ASCII", 'A', 1},
+		{"2-byte lead (C3)", 0xC3, 2},
+		{"3-byte lead (E4, 中)", 0xE4, 3},
+		{"3-byte lead (E5, 好)", 0xE5, 3},
+		{"4-byte lead (F0)", 0xF0, 4},
+		{"continuation (B8)", 0xB8, 0},
+		{"invalid (FE)", 0xFE, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := utf8ByteLen(tt.b); got != tt.want {
+				t.Errorf("utf8ByteLen(0x%X) = %d, want %d", tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConvenienceFunctions(t *testing.T) {
 	const testText = "text"
 	tests := []struct {

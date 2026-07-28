@@ -21,16 +21,6 @@ type PiConfig struct {
 	MaxTokens    int     `yaml:"max_tokens"`
 }
 
-// configDirs 返回配置文件搜索路径列表（优先级从高到低）。
-func configDirs() []string {
-	home, err := os.UserHomeDir()
-	dirs := []string{"."}
-	if err == nil {
-		dirs = append(dirs, filepath.Join(home, ".pi-go"))
-	}
-	return dirs
-}
-
 // configFileExists 检查是否存在任何配置文件。
 func configFileExists() bool {
 	paths := []string{
@@ -51,6 +41,7 @@ func configFileExists() bool {
 // loadConfig 从以下路径按优先级搜索配置文件：
 //  1. ./.pi-go.yaml (当前目录)
 //  2. ~/.pi-go/config.yaml (用户目录)
+//
 // 无配置文件时返回零值配置。
 func loadConfig() *PiConfig {
 	paths := []string{

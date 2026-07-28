@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -239,6 +240,10 @@ const (
 type LineEditor struct {
 	prompt  string
 	history []string // 历史记录，去重，最新的在前
+	// 差异渲染状态
+	prevLines   [][]rune // 上次渲染的文本内容
+	prevCurLine int      // 上次渲染时光标所在行
+	prevCurCol  int      // 上次渲染时光标所在列
 }
 
 // NewLineEditor 创建行编辑器。
@@ -349,10 +354,10 @@ func (le *LineEditor) ReadLine() (string, bool) {
 				le.handleTab(lines, &curLine, &curCol)
 
 			default:
-				// 普通文本插入
-				if seq[0] >= 32 && seq[0] < 127 {
+				// 普通文本插入（ASCII + UTF-8 多字节）
+				r, size := utf8.DecodeRune(seq)
+				if r != utf8.RuneError && size > 0 && isPrintable(r) {
 					if histIdx >= 0 {
-						// 退出历史浏览，恢复之前编辑的内容
 						if savedLines != nil {
 							lines = savedLines
 						} else {
@@ -365,11 +370,35 @@ func (le *LineEditor) ReadLine() (string, bool) {
 					}
 					lines[curLine] = append(lines[curLine], 0)
 					copy(lines[curLine][curCol+1:], lines[curLine][curCol:])
-					lines[curLine][curCol] = rune(seq[0])
+					lines[curLine][curCol] = r
 					curCol++
 				}
 			}
 
+			le.renderAll(lines, curLine, curCol)
+			continue
+		}
+
+		// --- 多字节 UTF-8 文本（中文等非 ASCII 可打印字符） ---
+		if seq[0] >= 0xC0 {
+			r, size := utf8.DecodeRune(seq)
+			if r != utf8.RuneError && size > 0 && isPrintable(r) {
+				if histIdx >= 0 {
+					if savedLines != nil {
+						lines = savedLines
+					} else {
+						lines = [][]rune{{}}
+					}
+					curLine = 0
+					curCol = 0
+					histIdx = -1
+					savedLines = nil
+				}
+				lines[curLine] = append(lines[curLine], 0)
+				copy(lines[curLine][curCol+1:], lines[curLine][curCol:])
+				lines[curLine][curCol] = r
+				curCol++
+			}
 			le.renderAll(lines, curLine, curCol)
 			continue
 		}
@@ -620,13 +649,55 @@ func commonPrefix(strs []string) string {
 	return p
 }
 
-// renderAll 重绘制全部编辑行。
+// renderAll 绘制全部编辑行（支持差异渲染 + synchronized output）。
 func (le *LineEditor) renderAll(lines [][]rune, curLine, curCol int) {
-	// 先隐藏光标，避免闪烁
+	// 开启 synchronized output，防终端渲染中途刷新导致撕裂
+	fmt.Print("\x1b[?2026h")
 	CursorHide()
+	defer func() {
+		os.Stdout.Sync()
+		CursorShow()
+		fmt.Print("\x1b[?2026l")
+	}()
 
+	// 首次渲染或行数变化 → 全量渲染
+	if le.prevLines == nil || len(le.prevLines) != len(lines) {
+		le.fullRender(lines, curLine, curCol, len(le.prevLines))
+		le.saveState(lines, curLine, curCol)
+		return
+	}
+
+	// 查找变化范围
+	first, last := le.diffRange(lines, curLine, curCol)
+	if first < 0 {
+		return
+	}
+
+	// 变化超过 2 行 → 回退全量渲染
+	if last-first > 1 {
+		le.fullRender(lines, curLine, curCol, len(le.prevLines))
+		le.saveState(lines, curLine, curCol)
+		return
+	}
+
+	// 差异渲染：只重绘 first~last 行
+	le.diffRender(lines, curLine, curCol, first, last)
+	le.saveState(lines, curLine, curCol)
+}
+
+// saveState 保存当前渲染状态用于下次差异比较。
+func (le *LineEditor) saveState(lines [][]rune, curLine, curCol int) {
+	le.prevLines = cloneRunes(lines)
+	le.prevCurLine = curLine
+	le.prevCurCol = curCol
+}
+
+// fullRender 全量渲染所有编辑行。
+func (le *LineEditor) fullRender(lines [][]rune, curLine, curCol int, prevCount int) {
+	// 光标移到编辑器起始处：先到行首，再上移至上一次光标行回到编辑器顶部
 	fmt.Print("\r")
-	// 清除所有行，然后重绘
+	CursorUp(le.prevCurLine)
+
 	for i, line := range lines {
 		ClearLine()
 		if i == 0 {
@@ -639,14 +710,17 @@ func (le *LineEditor) renderAll(lines [][]rune, curLine, curCol int) {
 			fmt.Print("\r\n")
 		}
 	}
-	// 清除多余行
-	ClearLineFromCursor()
-	// 光标归位到编辑行
-	if curLine > 0 {
-		// 需要上移 curLine 行
-		CursorUp(curLine)
+
+	// 清除上次渲染多余的行
+	for i := len(lines); i < prevCount; i++ {
+		fmt.Print("\r\n")
+		ClearLine()
 	}
-	// 移动到当前行开头 + prompt 宽度 + curCol
+
+	// 光标定位
+	if curLine > 0 && curLine < len(lines)-1 {
+		CursorUp(len(lines) - 1 - curLine)
+	}
 	fmt.Print("\r")
 	if curLine == 0 {
 		fmt.Print(le.prompt)
@@ -654,11 +728,79 @@ func (le *LineEditor) renderAll(lines [][]rune, curLine, curCol int) {
 		fmt.Print(strings.Repeat(" ", len(le.prompt)))
 	}
 	CursorForward(curCol)
+}
 
-	// 显式刷写 stdout，确保内容立即显示
-	os.Stdout.Sync()
+// diffRange 查找与上次渲染相比发生变化的行范围（包含光标位置变化）。
+// 返回 (firstChanged, lastChanged)，无变化返回 (-1, -1)。
+func (le *LineEditor) diffRange(lines [][]rune, curLine, curCol int) (int, int) {
+	first := -1
+	last := -1
+	prev := le.prevLines
 
-	CursorShow()
+	for i := 0; i < len(lines); i++ {
+		changed := false
+		// 文本内容变化
+		if i >= len(prev) || !runesEqual(prev[i], lines[i]) {
+			changed = true
+		}
+		// 光标所在行或曾经所在行（光标高亮影响视觉效果）
+		if !changed && (i == curLine || i == le.prevCurLine) && curCol != le.prevCurCol {
+			changed = true
+		}
+		if changed {
+			if first == -1 {
+				first = i
+			}
+			last = i
+		}
+	}
+	return first, last
+}
+
+// diffRender 差异渲染：从 prevCurLine 定位到 first，只重绘 first~last 行。
+func (le *LineEditor) diffRender(lines [][]rune, curLine, curCol, first, last int) {
+	// 定位到第一个变化行：从上次的光标位置开始
+	fmt.Print("\r")
+
+	// 垂直移动到 first 行
+	from := le.prevCurLine
+	if from > first {
+		CursorUp(from - first)
+	} else if from < first {
+		CursorDown(first - from)
+	}
+
+	// 重绘变化行
+	for i := first; i <= last; i++ {
+		ClearLine()
+		if i == 0 {
+			fmt.Print(le.prompt)
+		} else {
+			fmt.Print(strings.Repeat(" ", len(le.prompt)))
+		}
+		le.renderLine(lines[i], i == curLine, curCol)
+		if i < len(lines)-1 {
+			fmt.Print("\r\n")
+		}
+	}
+
+	// 清除多余行
+	for i := len(lines); i < len(le.prevLines); i++ {
+		fmt.Print("\r\n")
+		ClearLine()
+	}
+
+	// 光标定位到实际编辑行
+	if curLine < last {
+		CursorUp(last - curLine)
+	}
+	fmt.Print("\r")
+	if curLine == 0 {
+		fmt.Print(le.prompt)
+	} else {
+		fmt.Print(strings.Repeat(" ", len(le.prompt)))
+	}
+	CursorForward(curCol)
 }
 
 // renderLine 渲染单行内容。
@@ -712,24 +854,99 @@ func copyLines(src [][]rune) [][]rune {
 	return dst
 }
 
+// cloneRunes 深拷贝二维 rune 切片，用于保存渲染快照。
+func cloneRunes(src [][]rune) [][]rune {
+	return copyLines(src)
+}
+
+// runesEqual 比较两个 rune 切片是否相等。
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// isPrintable 判断是否为可打印的 Unicode 字符（排除控制字符和 DEL）。
+func isPrintable(r rune) bool {
+	if r < 0x20 {
+		return false
+	}
+	if r == 0x7F {
+		return false
+	}
+	return true
+}
+
+const (
+	stdinFD = 0 // 标准输入文件描述符
+)
+
 type keySeq []byte
 
-// readKey 从 stdin 读取一个按键序列。
+// readKey 从 stdin 读取一个按键序列（直读 fd 0 绕过 Go runtime poller）。
+// 自动处理多字节 UTF-8 字符（如中文）。
 func readKey() keySeq {
 	var buf [6]byte
-	n, err := os.Stdin.Read(buf[:1])
+
+	n, err := syscall.Read(stdinFD, buf[:1])
+	for err == syscall.EAGAIN || err == syscall.EINTR {
+		n, err = syscall.Read(stdinFD, buf[:1])
+	}
 	if err != nil || n == 0 {
 		return keySeq{}
 	}
 
 	first := buf[0]
-	if first != '\033' {
+
+	// Escape 序列
+	if first == '\033' {
+		return readEscapeSeq(buf)
+	}
+
+	// ASCII 单字节
+	if first < 0x80 {
 		return keySeq{first}
 	}
 
-	n2, err := os.Stdin.Read(buf[1:])
-	if err != nil || n2 == 0 {
+	// UTF-8 多字节
+	extra := utf8ByteLen(first)
+	if extra <= 1 {
 		return keySeq{first}
+	}
+	if extra > 5 {
+		extra = 5
+	}
+
+	remain := extra - 1
+	for remain > 0 {
+		off := 1 + extra - 1 - remain
+		// 限制最多只读 remain 字节，防止多读吞掉下一个字符
+		n2, err2 := syscall.Read(stdinFD, buf[off:off+remain])
+		for err2 == syscall.EAGAIN || err2 == syscall.EINTR {
+			n2, err2 = syscall.Read(stdinFD, buf[off:off+remain])
+		}
+		if err2 != nil || n2 == 0 {
+			break
+		}
+		remain -= n2
+	}
+	return keySeq(buf[:n+extra-1-remain])
+}
+
+// readEscapeSeq 读取 ESC 开头的转义序列剩余部分。
+func readEscapeSeq(buf [6]byte) keySeq {
+	n2, err := syscall.Read(stdinFD, buf[1:])
+	for err == syscall.EAGAIN || err == syscall.EINTR {
+		n2, err = syscall.Read(stdinFD, buf[1:])
+	}
+	if err != nil || n2 == 0 {
+		return keySeq{buf[0]}
 	}
 
 	seq := keySeq{buf[0]}
@@ -752,4 +969,22 @@ func readKey() keySeq {
 		seq = append(seq, buf[1:n2+1]...)
 	}
 	return seq
+}
+
+// utf8ByteLen 返回以 b 开头的 UTF-8 序列的字节数，无效返回 0。
+func utf8ByteLen(b byte) int {
+	switch {
+	case b < 0x80:
+		return 1
+	case b < 0xC0:
+		return 0
+	case b < 0xE0:
+		return 2
+	case b < 0xF0:
+		return 3
+	case b < 0xF8:
+		return 4
+	default:
+		return 0
+	}
 }
