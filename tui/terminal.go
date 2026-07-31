@@ -221,6 +221,27 @@ func Gray(text string) string      { return StyleText(text, Style{Fg: ColorGray}
 func Yellow(text string) string    { return StyleText(text, Style{Fg: ColorYellow}) }
 func Magenta(text string) string   { return StyleText(text, Style{Fg: ColorMagenta}) }
 
+// StripANSI 去除字符串中的 ANSI escape 序列，返回纯文本。
+// 用于计算框线宽度等场景。
+func StripANSI(s string) string {
+	var b strings.Builder
+	inEscape := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\033' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if s[i] == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 // ============================================================================
 // 行编辑
 // ============================================================================
@@ -717,17 +738,20 @@ func (le *LineEditor) fullRender(lines [][]rune, curLine, curCol int, prevCount 
 		ClearLine()
 	}
 
-	// 光标定位
+	// 光标定位：渲染后光标在文本末尾，需要向左移动到 curCol 位置
 	if curLine > 0 && curLine < len(lines)-1 {
 		CursorUp(len(lines) - 1 - curLine)
 	}
-	fmt.Print("\r")
-	if curLine == 0 {
-		fmt.Print(le.prompt)
-	} else {
-		fmt.Print(strings.Repeat(" ", len(le.prompt)))
+	// 当前光标在 curLine 行的文本末尾（renderLine 渲染后），
+	// 需要向左移动 len(lines[curLine]) - curCol 列，回到 curCol 位置
+	lineLen := 0
+	if curLine < len(lines) {
+		lineLen = len(lines[curLine])
 	}
-	CursorForward(curCol)
+	if lineLen > curCol {
+		CursorBack(lineLen - curCol)
+	}
+	// 如果 curCol == lineLen，光标已在行尾，无需移动
 }
 
 // diffRange 查找与上次渲染相比发生变化的行范围（包含光标位置变化）。
@@ -790,20 +814,25 @@ func (le *LineEditor) diffRender(lines [][]rune, curLine, curCol, first, last in
 		ClearLine()
 	}
 
-	// 光标定位到实际编辑行
+	// 光标定位到实际编辑行：渲染后光标在文本末尾，需要向左移动到 curCol 位置
 	if curLine < last {
 		CursorUp(last - curLine)
 	}
-	fmt.Print("\r")
-	if curLine == 0 {
-		fmt.Print(le.prompt)
-	} else {
-		fmt.Print(strings.Repeat(" ", len(le.prompt)))
+	// 当前光标在 curLine 行的文本末尾（renderLine 渲染后），
+	// 需要向左移动 len(lines[curLine]) - curCol 列，回到 curCol 位置
+	lineLen := 0
+	if curLine < len(lines) {
+		lineLen = len(lines[curLine])
 	}
-	CursorForward(curCol)
+	if lineLen > curCol {
+		CursorBack(lineLen - curCol)
+	}
+	// 如果 curCol == lineLen，光标已在行尾，无需移动
 }
 
 // renderLine 渲染单行内容。
+// 光标位置的字符用反色显示（isCurrentLine 且 i == curCol 时）。
+// 调用方需要通过 CursorForward 把光标移到 curCol 位置，终端光标会覆盖反色字符。
 func (le *LineEditor) renderLine(line []rune, isCurrentLine bool, curCol int) {
 	for i, r := range line {
 		if isCurrentLine && i == curCol {
@@ -811,9 +840,6 @@ func (le *LineEditor) renderLine(line []rune, isCurrentLine bool, curCol int) {
 		} else {
 			fmt.Printf("%c", r)
 		}
-	}
-	if isCurrentLine && curCol == len(line) {
-		fmt.Print(Blue("█"))
 	}
 }
 

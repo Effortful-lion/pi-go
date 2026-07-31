@@ -55,6 +55,12 @@ func NewChatUI(ag *agent.Agent, opts ...ChatUIOption) *ChatUI {
 }
 
 // Run 启动交互式对话循环。阻塞直到用户退出。
+//
+// UI 风格参考 Codex 卡片风格：
+//   - 用户输入通过 LineEditor 实时回显（提示符 > + 输入内容），不再额外显示
+//   - AI 回复用浅灰背景色卡片包裹，整体视觉分明
+//   - AI 回复内容通过 MarkdownLine 渲染，去掉裸 Markdown 语法（如 ###）
+//   - 卡片前后留空行，整体间距美观
 func (ui *ChatUI) Run(ctx context.Context) error {
 	restore, err := EnterRawMode()
 	if err != nil {
@@ -88,16 +94,13 @@ func (ui *ChatUI) Run(ctx context.Context) error {
 		// 添加到历史
 		le.AddHistory(input)
 
-		// 回显用户输入
-		ui.printUserInput(input)
-
 		// 启动 Agent 对话
 		stream := ui.agent.Run(ctx, input)
 
-		// 消费事件流并渲染
+		// 消费事件流并渲染（Codex 卡片风格 + Markdown 行级渲染）
 		ui.renderAgentStream(stream)
 
-		// 对话结束，空行分隔
+		// 对话结束，空行分隔（下一个提示符前）
 		fmt.Fprintln(ui.out)
 	}
 }
@@ -161,7 +164,7 @@ func (ui *ChatUI) ExportConversation(path string) error {
 	assistantPrefix := ui.emojiResolver.Resolve(emoji.SlotAssistant)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# Pi Agent 对话记录\n\n"))
+	b.WriteString(fmt.Sprintf("# Pi-Go Agent 对话记录\n\n"))
 	b.WriteString(fmt.Sprintf("导出时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
 	b.WriteString("---\n\n")
 
@@ -198,7 +201,7 @@ func (ui *ChatUI) ExportConversation(path string) error {
 // printWelcome 打印欢迎信息。
 func (ui *ChatUI) printWelcome() {
 	fmt.Fprintln(ui.out)
-	fmt.Fprintln(ui.out, Bold("Pi Agent"), Dim("— AI Coding Assistant"))
+	fmt.Fprintln(ui.out, Bold("Pi-Go Agent"), Dim("— AI Coding Assistant"))
 	fmt.Fprintln(ui.out, Dim("Type your question below. Ctrl+C to cancel, Ctrl+D to exit."))
 	fmt.Fprintln(ui.out)
 }
@@ -209,76 +212,97 @@ func (ui *ChatUI) printGoodbye() {
 	fmt.Fprintln(ui.out, Dim("Goodbye!"))
 }
 
-// printUserInput 回显用户输入。
-func (ui *ChatUI) printUserInput(input string) {
-	fmt.Fprintln(ui.out)
-	userPrefix := ui.emojiResolver.Resolve(emoji.SlotUser)
-	fmt.Fprint(ui.out, Cyan(userPrefix + " "))
-	fmt.Fprintln(ui.out, input)
-	fmt.Fprintln(ui.out)
-}
-
 // renderAgentStream 消费 agent.Event 流并渲染到终端。
+//
+// 渲染策略：
+//   - 保持流式输出：每行实时输出，不累积
+//   - 无背景色，简洁输出
+//   - 文本按行累积，每行通过 MarkdownLine 转换为 ANSI 样式（去掉裸 Markdown 语法）
+//   - 第一行前加 🤖 标识
+//   - 工具调用/结果以 dim 样式显示
+//   - 前后留空行，整体间距美观
 func (ui *ChatUI) renderAgentStream(stream agent.Stream) {
 	botPrefix := ui.emojiResolver.Resolve(emoji.SlotAssistant)
-	fmt.Fprint(ui.out, Green(botPrefix+" "))
 
-	var lineLen int // 当前行已输出的字符数（不含 ANSI）
-	firstTextDelta := true
+	// 行缓冲：用于按行处理 Markdown 渲染
+	var lineBuf strings.Builder
+	firstLine := true
+
+	flushLine := func() {
+		if lineBuf.Len() == 0 {
+			return
+		}
+		line := strings.TrimSuffix(lineBuf.String(), "\n")
+		lineBuf.Reset()
+		rendered := MarkdownLine(line)
+		if firstLine {
+			fmt.Fprintln(ui.out) // 回复前空行
+			fmt.Fprintln(ui.out, Green(botPrefix+" ")+rendered)
+			firstLine = false
+		} else {
+			fmt.Fprintln(ui.out, rendered)
+		}
+	}
+
+	flushInline := func() {
+		// 用于 StepEnd 等不换行的场景
+		if lineBuf.Len() == 0 {
+			return
+		}
+		line := strings.TrimSuffix(lineBuf.String(), "\n")
+		lineBuf.Reset()
+		rendered := MarkdownLine(line)
+		if firstLine {
+			fmt.Fprintln(ui.out) // 回复前空行
+			fmt.Fprintln(ui.out, Green(botPrefix+" ")+rendered)
+			firstLine = false
+		} else {
+			fmt.Fprintln(ui.out, rendered)
+		}
+	}
 
 	for evt := range stream {
 		switch evt.Type {
 		case agent.EventTextDelta:
-			// 流式文本增量，直接写入终端
-			if firstTextDelta {
-				firstTextDelta = false
+			// 流式文本按行累积，遇到 \n 实时输出
+			for _, ch := range evt.Text {
+				lineBuf.WriteRune(ch)
+				if ch == '\n' {
+					flushLine()
+				}
 			}
-			fmt.Fprint(ui.out, evt.Text)
-			lineLen += len(evt.Text)
 
 		case agent.EventToolCall:
-			// 工具调用通知
-			if !firstTextDelta {
-				fmt.Fprintln(ui.out)
-				lineLen = 0
-			}
+			flushLine()
 			toolPrefix := ui.emojiResolver.Resolve(emoji.SlotToolCall)
-			fmt.Fprint(ui.out, Dim(fmt.Sprintf("%s %s", toolPrefix, evt.ToolCall.Name)))
-			fmt.Fprintln(ui.out)
-			lineLen = 0
+			fmt.Fprintln(ui.out, Dim(fmt.Sprintf("  %s %s", toolPrefix, evt.ToolCall.Name)))
 
 		case agent.EventToolResult:
-			// 工具结果（截断显示）
+			flushLine()
 			truncated := truncate(evt.ToolResult, 100)
 			resultPrefix := ui.emojiResolver.Resolve(emoji.SlotToolResult)
-			fmt.Fprint(ui.out, Dim(fmt.Sprintf("%s %s", resultPrefix, truncated)))
-			fmt.Fprintln(ui.out)
-			lineLen = 0
+			fmt.Fprintln(ui.out, Dim(fmt.Sprintf("  %s %s", resultPrefix, truncated)))
 
 		case agent.EventStepEnd:
-			// Usage 统计
+			flushInline()
 			if evt.Usage != nil && evt.Usage.TotalTokens > 0 {
-				if lineLen > 0 {
-					fmt.Fprint(ui.out, "  ")
-				}
 				total := evt.Usage.TotalTokens
-				suffix := "tokens"
 				val := fmt.Sprintf("%d", total)
 				if total >= 1000 {
 					val = fmt.Sprintf("%.1fk", float64(total)/1000)
 				}
-				fmt.Fprint(ui.out, Dim(fmt.Sprintf("[%s %s]", val, suffix)))
+				fmt.Fprintln(ui.out, Dim(fmt.Sprintf("  [%s tokens]", val)))
 			}
-			fmt.Fprintln(ui.out)
-			lineLen = 0
 
 		case agent.EventError:
-			fmt.Fprintln(ui.out)
+			flushLine()
 			errorPrefix := ui.emojiResolver.Resolve(emoji.SlotError)
-			fmt.Fprintln(ui.out, Red(fmt.Sprintf("%s %v", errorPrefix, evt.Err)))
-			lineLen = 0
+			fmt.Fprintln(ui.out, Red(fmt.Sprintf("  %s %v", errorPrefix, evt.Err)))
 		}
 	}
+
+	// 流结束，刷新剩余缓冲
+	flushLine()
 }
 
 // truncate 截断字符串到 maxLen 个字符。

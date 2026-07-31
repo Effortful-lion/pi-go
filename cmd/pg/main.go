@@ -36,7 +36,7 @@ import (
 
 const version = "1.0.0"
 
-const defaultSystemPrompt = `You are Pi Agent, an AI coding assistant.
+const defaultSystemPrompt = `You are Pi-Go Agent, an AI coding assistant.
 You help with writing code, debugging, answering technical questions, and more.
 Be concise, helpful, and use tools when appropriate.`
 
@@ -63,11 +63,20 @@ func main() {
 	}
 }
 
-// initLogging 将日志输出重定向到 logs/ 目录。
-// 文件名格式: pg_2006-01-02.log
+// initLogging 将日志输出重定向到 logs/ 目录，按级别分文件存储。
+//
+// 目录结构:
+//
+//	logs/info/pg_2006-01-02.log     # INFO 级别
+//	logs/error/pg_2006-01-02.log    # ERROR 及以上级别
+//
+// 不创建根目录汇总文件，避免 INFO 日志同时出现在根目录和子目录。
+// INFO 日志不会出现在终端，只有 WARN/ERROR 及以上才会。
 func initLogging() {
 	lg.SetPath("logs", lg.LevelInfo,
 		lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"),
+		lg.WithLevelDir(lg.LevelInfo, "info"),
+		lg.WithLevelDir(lg.LevelError, "error"),
 	)
 }
 
@@ -121,7 +130,7 @@ func runChatCmd(args []string) error {
 }
 
 func printHelp() {
-	fmt.Print(`Pi Agent — AI Coding Assistant
+	fmt.Print(`Pi-Go Agent — AI Coding Assistant
 
 用法:
   pg                           启动交互式对话（默认）
