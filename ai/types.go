@@ -65,4 +65,5 @@ type Context struct {
 	SystemPrompt string  // 快捷设置 SystemMessage（自动排在 Messages 最前）
 	MaxTokens    int     // 最大输出 tokens，0 表示使用模型默认值
 	Temperature  float64 // 采样温度，0 表示使用模型默认值
+	EmojiTheme   string  // 可选：emoji 主题名称（用于结构化输出）
 }

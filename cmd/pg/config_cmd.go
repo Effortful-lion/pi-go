@@ -20,7 +20,7 @@ func runConfig(args []string) {
 	case "set":
 		if len(args) < 3 {
 			fmt.Println("用法: pg config set <key> <value>")
-			fmt.Println("可设置的 key: provider, model, api_key, base_url, max_steps, temperature, max_tokens")
+			fmt.Println("可设置的 key: provider, model, api_key, base_url, system_prompt, max_steps, temperature, max_tokens, emoji_theme")
 			return
 		}
 		configSet(args[1], args[2])
@@ -99,9 +99,11 @@ func configSet(key, value string) {
 		fmt.Sscanf(value, "%f", &cfg.Temperature)
 	case "max_tokens":
 		fmt.Sscanf(value, "%d", &cfg.MaxTokens)
+	case "emoji_theme":
+		cfg.EmojiTheme = value
 	default:
 		fmt.Printf("未知配置项: %s\n", key)
-		fmt.Println("可设置的 key: provider, model, api_key, base_url, max_steps, temperature, max_tokens")
+		fmt.Println("可设置的 key: provider, model, api_key, base_url, system_prompt, max_steps, temperature, max_tokens, emoji_theme")
 		return
 	}
 

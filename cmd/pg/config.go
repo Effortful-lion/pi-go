@@ -19,6 +19,7 @@ type PiConfig struct {
 	MaxSteps     int     `yaml:"max_steps"`
 	Temperature  float64 `yaml:"temperature"`
 	MaxTokens    int     `yaml:"max_tokens"`
+	EmojiTheme   string  `yaml:"emoji_theme"` // emoji 主题名称
 }
 
 // configFileExists 检查是否存在任何配置文件。
@@ -119,6 +120,8 @@ func getConfigField(cfg *PiConfig, name string) string {
 		return cfg.BaseURL
 	case "system-prompt":
 		return cfg.SystemPrompt
+	case "emoji-theme":
+		return cfg.EmojiTheme
 	}
 	return ""
 }
