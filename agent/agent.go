@@ -40,11 +40,22 @@ var logger = lg.Module("[agent]")
 // 默认最大工具调用轮数。
 const defaultMaxSteps = 10
 
+// emojiThemeHint 是当配置了 emoji 主题时注入 system prompt 的结构化表达约束。
+// 遵循 docs/emoji设计.md 第 83-88 行的设计规范。
+const emojiThemeHint = `
+
+
+[输出风格要求]
+- 回复优先使用短段落和明确的小标题来组织内容
+- 工具调用前后使用一致的语义标记（如标题、分隔线等）
+- 不需要生成具体的 emoji 字符，只需保持清晰的语义结构`
+
 // Config Agent 配置。
 type Config struct {
 	Provider     ai.Provider
 	ModelID      string
 	SystemPrompt string
+	EmojiTheme   string   // 可选：emoji 主题名称，非空时在 system prompt 中注入结构化表达约束
 	Tools        []tool.Tool
 	MaxSteps     int     // 最大工具调用循环轮数，≤0 时使用默认值 10
 	Temperature  float64 // LLM 采样温度，0 表示使用模型默认值
@@ -74,11 +85,16 @@ func New(cfg Config) *Agent {
 		toolMap: tm,
 	}
 
-	// 如果有 SystemPrompt，作为第一条消息加入历史
-	if cfg.SystemPrompt != "" {
+	// 构建 system prompt，如果配置了 EmojiTheme 则追加结构化表达约束
+	sysPrompt := cfg.SystemPrompt
+	if cfg.EmojiTheme != "" {
+		sysPrompt += emojiThemeHint
+	}
+
+	if sysPrompt != "" {
 		a.messages = append(a.messages, ai.Message{
 			Role:    ai.RoleSystem,
-			Content: cfg.SystemPrompt,
+			Content: sysPrompt,
 		})
 	}
 
@@ -275,6 +291,7 @@ func (a *Agent) buildContext() ai.Context {
 		Tools:       toolDefs,
 		MaxTokens:   a.cfg.MaxTokens,
 		Temperature: a.cfg.Temperature,
+		EmojiTheme:  a.cfg.EmojiTheme,
 	}
 
 	return ctx

@@ -63,6 +63,7 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 		Provider:     prov,
 		ModelID:      model,
 		SystemPrompt: systemPrompt,
+		EmojiTheme:   emojiTheme,
 		MaxSteps:     maxSteps,
 		Temperature:  temperature,
 		MaxTokens:    maxTokens,
