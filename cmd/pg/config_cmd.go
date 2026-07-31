@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,6 +37,7 @@ func configInit() {
 		fmt.Fprintf(os.Stderr, "无法获取用户目录: %v\n", err)
 		return
 	}
+
 	cfg := &PiConfig{
 		Provider:    "openai",
 		Model:       "gpt-4o",
@@ -46,8 +48,29 @@ func configInit() {
 		fmt.Fprintf(os.Stderr, "创建配置文件失败: %v\n", err)
 		return
 	}
-	fmt.Printf("配置文件已创建: %s\n", home+"/.pi-go/config.yaml")
+
+	// 在配置文件末尾追加带注释的示例配置项
+	cfgPath := filepath.Join(home, ".pi-go", "config.yaml")
+	appendCommentedExamples(cfgPath)
+
+	fmt.Printf("配置文件已创建: %s\n", cfgPath)
 	fmt.Println("请编辑该文件设置 api_key 和其他选项。")
+}
+
+// appendCommentedExamples 在配置文件末尾追加注释形式的可选配置示例。
+func appendCommentedExamples(path string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintln(f, "# ── 可选配置（取消注释并修改即可生效） ──")
+	fmt.Fprintln(f, "# base_url: \"\"                 # 自定义 API 地址")
+	fmt.Fprintln(f, "# system_prompt: \"\"            # 自定义系统提示词")
+	fmt.Fprintln(f, "# max_tokens: 0                  # 最大输出 token 数，0 或不设置 = 自动取模型最大值")
+	fmt.Fprintln(f, "# temperature: 0.7               # 采样温度 (0.0-2.0)")
+	fmt.Fprintln(f, "# max_steps: 10                  # 最大工具调用轮数")
 }
 
 func configShow() {

@@ -18,11 +18,11 @@ const (
 // AssistantMessage 使用 Blocks 字段携带富内容（文本、思考、工具调用等），
 // ToolResultMessage 使用 Content 携带工具执行结果，ToolCallID 回溯到对应 ToolCall。
 type Message struct {
-	Role       Role
-	Content    string         // 纯文本内容（User/System/Tool 消息使用）
-	Blocks     []ContentBlock // 富内容块（Assistant 消息使用）
-	ToolCallID string         // 工具调用回溯 ID（Tool 消息使用）
-	ToolName   string         // 工具名称（Tool 消息使用）
+	Role       Role           `json:"role,omitempty"`
+	Content    string         `json:"content,omitempty"`      // 纯文本内容（User/System/Tool 消息使用）
+	Blocks     []ContentBlock `json:"blocks,omitempty"`       // 富内容块（Assistant 消息使用）
+	ToolCallID string         `json:"tool_call_id,omitempty"` // 工具调用回溯 ID（Tool 消息使用）
+	ToolName   string         `json:"tool_name,omitempty"`    // 工具名称（Tool 消息使用）
 }
 
 // ContentBlockType 内容块类型。
@@ -36,6 +36,7 @@ const (
 )
 
 // ContentBlock 富文本内容块，仅在 Assistant 消息中出现。
+// 单字段有效
 type ContentBlock struct {
 	Type     ContentBlockType
 	Text     string    // BlockText 时使用

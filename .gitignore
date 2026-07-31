@@ -1,0 +1,12 @@
+# 编译产物
+pg
+pi
+
+# 日志
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

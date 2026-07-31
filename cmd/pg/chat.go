@@ -9,6 +9,7 @@ import (
 	"github.com/Effortful-lion/pi-go/ai"
 	"github.com/Effortful-lion/pi-go/ai/providers/anthropic"
 	"github.com/Effortful-lion/pi-go/ai/providers/google"
+	myopenai "github.com/Effortful-lion/pi-go/ai/providers/my-openai"
 	"github.com/Effortful-lion/pi-go/ai/providers/openai"
 	"github.com/Effortful-lion/pi-go/tui"
 )
@@ -41,7 +42,19 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 		model = "gpt-4o"
 	}
 	if apiKey == "" {
-		return fmt.Errorf("API key is required: set -api-key flag, OPENAI_API_KEY env var, or configure it in ~/.pi-go/config.yaml")
+		return fmt.Errorf(`API key 未设置，请通过以下任一方式提供：
+
+  1. 配置文件 (推荐):
+     pg config set api_key "your-api-key"
+
+  2. 命令行参数:
+     pg -api-key "your-api-key"
+
+  3. 环境变量:
+     export OPENAI_API_KEY="your-api-key"
+     然后运行 pg
+
+  详细帮助: pg help`)
 	}
 	if systemPrompt == "" {
 		systemPrompt = defaultSystemPrompt
@@ -52,6 +65,16 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 
 	// 创建 Provider（按 provider 名称选择）
 	prov := newProvider(provider, apiKey, baseURL)
+
+	// MaxTokens 未配置时，自动获取模型的最大能力
+	if maxTokens <= 0 {
+		for _, mi := range prov.Models() {
+			if mi.ID == model {
+				maxTokens = mi.MaxTokens
+				break
+			}
+		}
+	}
 
 	// 创建 Agent
 	ag := agent.New(agent.Config{
@@ -80,6 +103,8 @@ func newProvider(name, apiKey, baseURL string) ai.Provider {
 		return anthropic.New(anthropic.Config{APIKey: apiKey, BaseURL: baseURL})
 	case "google", "gemini":
 		return google.New(google.Config{APIKey: apiKey, BaseURL: baseURL})
+	case "my-openai":
+		return myopenai.New(myopenai.Config{APIKey: apiKey, BaseURL: baseURL})
 	default:
 		fmt.Fprintf(os.Stderr, "warning: unknown provider %q, falling back to openai\n", name)
 		return openai.New(openai.Config{APIKey: apiKey, BaseURL: baseURL})

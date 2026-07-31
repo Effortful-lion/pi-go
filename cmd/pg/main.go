@@ -29,6 +29,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/Effortful-lion/pi-go/lg"
 )
 
 const version = "1.0.0"
@@ -51,10 +53,20 @@ type ChatFlags struct {
 }
 
 func main() {
+	initLogging()
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "pg: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// initLogging 将日志输出重定向到 logs/ 目录。
+// 文件名格式: pg_2006-01-02.log
+func initLogging() {
+	lg.SetPath("logs", lg.LevelInfo,
+		lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"),
+	)
 }
 
 func run() error {

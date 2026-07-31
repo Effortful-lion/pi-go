@@ -188,6 +188,30 @@ func Module(module string) *Logger {
 	return defaultLogger.Module(module)
 }
 
+// SetPath 将默认 Logger 和 Frame Logger 的输出重定向到指定目录下的日志文件。
+// dir: 日志目录，如 "logs"
+// level: 最低输出级别
+// pattern: 文件名模式构建器，Build() 自动追加 .log 后缀
+//
+// 使用示例:
+//
+//	// logs/pg_2026-08-01.log
+//	lg.SetPath("logs", lg.LevelInfo,
+//	    lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"))
+//
+//	// logs/2026-08-01_pg.log
+//	lg.SetPath("logs", lg.LevelInfo,
+//	    lg.NewLogNamePattern().Date("2006-01-02").Char("_").Module())
+func SetPath(dir string, level Level, pattern *LogNamePattern) error {
+	fw, err := NewFileWriterWithLogName(dir, level, pattern.Build())
+	if err != nil {
+		return err
+	}
+	SetDefault(New(fw))
+	SetFrameWriter(fw)
+	return nil
+}
+
 // ============================================================================
 // 框架内置日志器
 // ============================================================================

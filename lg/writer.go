@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Writer 是日志输出接口。实现此接口即可将日志输出到任意目标。
@@ -63,18 +65,109 @@ func (w *ConsoleWriter) Write(entry *Entry) error {
 func (w *ConsoleWriter) Close() error { return nil }
 
 // ============================================================================
+// LogNamePattern — 日志文件名链式构建器
+// ============================================================================
+
+// LogMeta 提供日志文件名生成所需的元信息。
+type LogMeta struct {
+	Module string    // 模块名
+	Time   time.Time // 日志时间
+}
+
+// LogName 日志文件名生成函数。接收 LogMeta，返回文件名（不含目录和扩展名）。
+type LogName func(meta LogMeta) string
+
+// nameSegment 文件名片段生成函数。
+type nameSegment func(meta LogMeta) string
+
+// LogNamePattern 日志文件名模式构建器，链式组合各个最小片段，Build() 自动追加 .log 后缀。
+//
+// 使用示例:
+//
+//	// pg_2026-08-01.log
+//	NewLogNamePattern().Module().Char("_").Date("2006-01-02").Build()
+//
+//	// pg_2026-08-01_12-30-00.log
+//	NewLogNamePattern().Module().Char("_").Date("2006-01-02").Char("_").Clock("15-04-05").Build()
+//
+//	// 2026-08-01_pg.log
+//	NewLogNamePattern().Date("2006-01-02").Char("_").Module().Build()
+//
+//	// 1704067200_pg.log
+//	NewLogNamePattern().Timestamp().Char("_").Module().Build()
+type LogNamePattern struct {
+	segs []nameSegment
+}
+
+// NewLogNamePattern 创建文件名模式构建器。
+func NewLogNamePattern() *LogNamePattern {
+	return &LogNamePattern{}
+}
+
+// Module 追加模块名片段。
+func (p *LogNamePattern) Module() *LogNamePattern {
+	p.segs = append(p.segs, func(meta LogMeta) string { return meta.Module })
+	return p
+}
+
+// Date 追加日期片段，layout 为 Go 时间格式，如 "2006-01-02"。
+func (p *LogNamePattern) Date(layout string) *LogNamePattern {
+	p.segs = append(p.segs, func(meta LogMeta) string { return meta.Time.Format(layout) })
+	return p
+}
+
+// Clock 追加时钟片段，layout 如 "15-04-05"、"15:04:05"。
+func (p *LogNamePattern) Clock(layout string) *LogNamePattern {
+	p.segs = append(p.segs, func(meta LogMeta) string { return meta.Time.Format(layout) })
+	return p
+}
+
+// Timestamp 追加 Unix 时间戳片段。
+func (p *LogNamePattern) Timestamp() *LogNamePattern {
+	p.segs = append(p.segs, func(meta LogMeta) string { return fmt.Sprintf("%d", meta.Time.Unix()) })
+	return p
+}
+
+// Char 追加固定字符片段，如 "_"、"-"、"/" 等任意字符串。
+func (p *LogNamePattern) Char(s string) *LogNamePattern {
+	p.segs = append(p.segs, func(meta LogMeta) string { return s })
+	return p
+}
+
+// Build 将当前片段组合成 LogName 函数，自动追加 .log 后缀。
+func (p *LogNamePattern) Build() LogName {
+	segs := make([]nameSegment, len(p.segs))
+	copy(segs, p.segs)
+	return func(meta LogMeta) string {
+		var b strings.Builder
+		for _, seg := range segs {
+			b.WriteString(seg(meta))
+		}
+		b.WriteString(".log")
+		return b.String()
+	}
+}
+
+// ============================================================================
 // FileWriter — 文件输出
 // ============================================================================
 
-// FileWriter 将日志写入文件，支持自动创建目录。
+// FileWriter 将日志写入文件，支持自动创建目录和动态文件名。
+//
+// 静态路径：使用 NewFileWriter(path, level)，每次写入同一个文件。
+// 动态文件名：使用 NewFileWriterWithLogName(dir, level, logName)，每条日志根据
+// LogName 函数动态决定文件名，实现按日期/模块/时间戳等维度自动切分。
 type FileWriter struct {
-	file  *os.File
-	level Level
-	mu    sync.Mutex
+	dir     string  // 日志目录（LogName 模式下使用）
+	file    *os.File // 当前打开的文件（静态模式）
+	level   Level
+	logName LogName   // 文件名生成器（动态模式）
+	curName string    // 当前文件名缓存，避免重复 open
+	mu      sync.Mutex
 }
 
-// NewFileWriter 创建一个文件 Writer。
-// path: 日志文件路径，父目录不存在时自动创建
+// NewFileWriter 创建一个静态文件 Writer（固定路径）。
+// path: 日志文件完整路径，父目录不存在时自动创建
 // level: 最低输出级别
 func NewFileWriter(path string, level Level) (*FileWriter, error) {
 	dir := pathDir(path)
@@ -89,6 +182,31 @@ func NewFileWriter(path string, level Level) (*FileWriter, error) {
 		return nil, fmt.Errorf("lg: open file %s: %w", path, err)
 	}
 	return &FileWriter{file: f, level: level}, nil
+}
+
+// NewFileWriterWithLogName 创建一个动态文件 Writer。
+// dir: 日志文件存放目录
+// level: 最低输出级别
+// logName: 文件名生成函数，每条日志写入前调用以决定目标文件
+//
+// 使用 LogNamePattern 链式构建文件名（自动追加 .log 后缀）:
+//
+//	// pg_2026-08-01.log
+//	fw, _ := NewFileWriterWithLogName("logs", LevelInfo,
+//	    NewLogNamePattern().Module().Char("_").Date("2006-01-02").Build())
+//
+//	// pg_2026-08-01_12-30-00.log
+//	fw, _ := NewFileWriterWithLogName("logs", LevelInfo,
+//	    NewLogNamePattern().Module().Char("_").Date("2006-01-02").Char("_").Clock("15-04-05").Build())
+//
+//	// 1704067200_pg.log
+//	fw, _ := NewFileWriterWithLogName("logs", LevelInfo,
+//	    NewLogNamePattern().Timestamp().Char("_").Module().Build())
+func NewFileWriterWithLogName(dir string, level Level, logName LogName) (*FileWriter, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("lg: create dir %s: %w", dir, err)
+	}
+	return &FileWriter{dir: dir, level: level, logName: logName}, nil
 }
 
 // pathDir 提取文件路径中的目录部分。
@@ -107,8 +225,32 @@ func (w *FileWriter) Write(entry *Entry) error {
 	if entry.Level < w.level {
 		return nil
 	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// 动态文件名模式：根据 LogName 决定目标文件
+	if w.logName != nil {
+		name := w.logName(LogMeta{Module: entry.Module, Time: entry.Time})
+		if name != w.curName {
+			// 文件名变了，关闭旧文件，打开新文件
+			if w.file != nil {
+				w.file.Close()
+			}
+			fullPath := w.dir + "/" + name
+			// 确保子目录存在（文件名可能含路径分隔符）
+			if d := pathDir(fullPath); d != "" {
+				os.MkdirAll(d, 0o755)
+			}
+			f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return fmt.Errorf("lg: open file %s: %w", fullPath, err)
+			}
+			w.file = f
+			w.curName = name
+		}
+	}
+
 	_, err := fmt.Fprintln(w.file, entry.Format())
 	return err
 }
@@ -116,7 +258,10 @@ func (w *FileWriter) Write(entry *Entry) error {
 func (w *FileWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.file.Close()
+	if w.file != nil {
+		return w.file.Close()
+	}
+	return nil
 }
 
 // ============================================================================

@@ -14,11 +14,11 @@ type PiConfig struct {
 	Provider     string  `yaml:"provider"`
 	Model        string  `yaml:"model"`
 	APIKey       string  `yaml:"api_key"`
-	BaseURL      string  `yaml:"base_url"`
-	SystemPrompt string  `yaml:"system_prompt"`
+	BaseURL      string  `yaml:"base_url,omitempty"`
+	SystemPrompt string  `yaml:"system_prompt,omitempty"`
 	MaxSteps     int     `yaml:"max_steps"`
 	Temperature  float64 `yaml:"temperature"`
-	MaxTokens    int     `yaml:"max_tokens"`
+	MaxTokens    int     `yaml:"max_tokens,omitempty"`
 }
 
 // configFileExists 检查是否存在任何配置文件。
