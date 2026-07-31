@@ -163,7 +163,11 @@ type FileWriter struct {
 	level   Level
 	logName LogName   // 文件名生成器（动态模式）
 	curName string    // 当前文件名缓存，避免重复 open
-	mu      sync.Mutex
+
+	rotateSize int64 // 文件大小切割阈值（0 = 不限制）
+	written    int64 // 当前文件已写入字节数
+	seq        int   // 当前序号，0 表示不追加序号
+	mu         sync.Mutex
 }
 
 // NewFileWriter 创建一个静态文件 Writer（固定路径）。
@@ -232,13 +236,16 @@ func (w *FileWriter) Write(entry *Entry) error {
 	// 动态文件名模式：根据 LogName 决定目标文件
 	if w.logName != nil {
 		name := w.logName(LogMeta{Module: entry.Module, Time: entry.Time})
+		// 序号 > 0 时插入序号：pg_2026-08-01.001.log
+		if w.seq > 0 {
+			name = insertSeq(name, w.seq)
+		}
 		if name != w.curName {
-			// 文件名变了，关闭旧文件，打开新文件
 			if w.file != nil {
 				w.file.Close()
+				w.written = 0
 			}
 			fullPath := w.dir + "/" + name
-			// 确保子目录存在（文件名可能含路径分隔符）
 			if d := pathDir(fullPath); d != "" {
 				os.MkdirAll(d, 0o755)
 			}
@@ -251,8 +258,32 @@ func (w *FileWriter) Write(entry *Entry) error {
 		}
 	}
 
-	_, err := fmt.Fprintln(w.file, entry.Format())
-	return err
+	line := entry.Format() + "\n"
+	n, err := fmt.Fprint(w.file, line)
+	if err != nil {
+		return err
+	}
+	w.written += int64(n)
+
+	// 超过大小阈值：关闭当前文件，递增序号，下次 Write 自动切新文件
+	if w.rotateSize > 0 && w.written >= w.rotateSize {
+		w.file.Close()
+		w.file = nil
+		w.curName = ""
+		w.written = 0
+		w.seq++
+	}
+
+	return nil
+}
+
+// insertSeq 在文件名扩展名 .log 前插入序号，如 "pg.log" → "pg.001.log"。
+func insertSeq(name string, seq int) string {
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return name
+	}
+	return name[:dot] + fmt.Sprintf(".%03d", seq) + name[dot:]
 }
 
 func (w *FileWriter) Close() error {

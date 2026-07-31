@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLevelString(t *testing.T) {
@@ -297,5 +298,277 @@ func TestCallerLocation(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "logger_test.go") {
 		t.Errorf("missing caller file, got: %s", output)
+	}
+}
+
+func TestSetPath_NoLevelDir(t *testing.T) {
+	dir := t.TempDir()
+	pattern := NewLogNamePattern().Date("2006-01-02")
+
+	err := SetPath(dir, LevelInfo, pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Info("hello no dirs")
+
+	// 检查日志文件在 dir 根目录下
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		t.Fatal("no log files created")
+	}
+}
+
+func TestSetPath_WithLevelDir(t *testing.T) {
+	dir := t.TempDir()
+	pattern := NewLogNamePattern().Date("2006-01-02")
+
+	err := SetPath(dir, LevelInfo, pattern,
+		WithLevelDir(LevelError, "error"),
+		WithLevelDir(LevelInfo, "info"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 写一条 error 日志
+	Error("something wrong")
+	// 写一条 info 日志
+	Info("all good")
+
+	// error 日志应该在 error 子目录
+	errorEntries, _ := os.ReadDir(dir + "/error")
+	if len(errorEntries) == 0 {
+		t.Error("expected log file in error/ directory")
+	}
+
+	// info 日志应该在 info 子目录
+	infoEntries, _ := os.ReadDir(dir + "/info")
+	if len(infoEntries) == 0 {
+		t.Error("expected log file in info/ directory")
+	}
+}
+
+func TestSetPath_LevelFilter(t *testing.T) {
+	dir := t.TempDir()
+	pattern := NewLogNamePattern().Date("2006-01-02")
+
+	// error 子目录只收 LevelError 及以上
+	err := SetPath(dir, LevelDebug, pattern,
+		WithLevelDir(LevelError, "error"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Debug("debug msg") // 级别 < LevelError，不应进 error 目录
+	Error("error msg") // 级别 >= LevelError，进 error 目录
+
+	// error 子目录应该只有 error 日志
+	errorEntries, _ := os.ReadDir(dir + "/error")
+	if len(errorEntries) == 0 {
+		t.Fatal("expected log file in error/")
+	}
+	data, _ := os.ReadFile(dir + "/error/" + errorEntries[0].Name())
+	if strings.Contains(string(data), "debug msg") {
+		t.Error("debug msg should NOT be in error directory")
+	}
+	if !strings.Contains(string(data), "error msg") {
+		t.Error("error msg should be in error directory")
+	}
+}
+
+func TestRotateByInterval_Hourly(t *testing.T) {
+	dir := t.TempDir()
+
+	err := SetPath(dir, LevelInfo,
+		NewLogNamePattern().Module(),
+		WithRotateByInterval(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Info("test hourly")
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		t.Fatal("no log file created")
+	}
+	name := entries[0].Name()
+	// 文件名应包含日期和分钟精度: pg_2026-08-01_12-00.log
+	if !strings.Contains(name, "_") {
+		t.Errorf("expected datetime suffix in filename, got %q", name)
+	}
+	if !strings.HasSuffix(name, ".log") {
+		t.Errorf("expected .log suffix, got %q", name)
+	}
+}
+
+func TestRotateByInterval_Daily(t *testing.T) {
+	dir := t.TempDir()
+
+	err := SetPath(dir, LevelInfo,
+		NewLogNamePattern().Module(),
+		WithRotateByInterval(24*time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Info("test daily")
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		t.Fatal("no log file created")
+	}
+	name := entries[0].Name()
+	// 文件名应包含日期: pg_2026-08-01.log
+	if !strings.Contains(name, "2026") {
+		t.Errorf("expected date in filename, got %q", name)
+	}
+	if !strings.HasSuffix(name, ".log") {
+		t.Errorf("expected .log suffix, got %q", name)
+	}
+}
+
+func TestRotateByInterval_Minutely(t *testing.T) {
+	dir := t.TempDir()
+
+	err := SetPath(dir, LevelInfo,
+		NewLogNamePattern().Module(),
+		WithRotateByInterval(time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Info("test minutely")
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		t.Fatal("no log file created")
+	}
+	name := entries[0].Name()
+	// 文件名应包含日期和秒精度: pg_2026-08-01_12-00-00.log
+	parts := strings.SplitN(strings.TrimSuffix(name, ".log"), "_", 3)
+	if len(parts) < 3 {
+		t.Errorf("expected module_date_time format, got %q", name)
+	}
+}
+
+func TestRotateBySize_Switch(t *testing.T) {
+	dir := t.TempDir()
+
+	err := SetPath(dir, LevelInfo,
+		NewLogNamePattern().Module(),
+		WithRotateBySize(50), // 很小，一条日志就超
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 写入多条，触发大小切割
+	Info("line 1")
+	Info("line 2")
+	Info("line 3")
+
+	entries, _ := os.ReadDir(dir)
+	if len(entries) < 2 {
+		t.Fatalf("expected at least 2 files from size rotation, got %d", len(entries))
+	}
+
+	// 检查有序号的文件
+	hasSeq := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".001.") || strings.Contains(e.Name(), ".002.") {
+			hasSeq = true
+		}
+	}
+	if !hasSeq {
+		t.Error("expected sequenced files like .001.log")
+	}
+}
+
+func TestRotateBySize_SeqFormat(t *testing.T) {
+	dir := t.TempDir()
+
+	err := SetPath(dir, LevelInfo,
+		NewLogNamePattern().Module(),
+		WithRotateBySize(30),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Info("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") // 长消息触发切割
+	Info("bb")
+
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		name := e.Name()
+		if strings.Contains(name, ".") && !strings.HasSuffix(name, ".log") {
+			if !strings.Contains(name, ".00") {
+				t.Errorf("unexpected seq format: %q", name)
+			}
+		}
+	}
+}
+
+func TestRetention_CleanOldFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建一个"旧"日志文件（修改时间设为 2 天前）
+	oldPath := filepath.Join(dir, "old.log")
+	os.WriteFile(oldPath, []byte("old"), 0644)
+	oldTime := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(oldPath, oldTime, oldTime)
+
+	// 创建一个"新"日志文件
+	newPath := filepath.Join(dir, "new.log")
+	os.WriteFile(newPath, []byte("new"), 0644)
+
+	// 保留 24 小时，应删除 old.log
+	cleanDir(dir, 24*time.Hour)
+
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Error("old.log should be deleted")
+	}
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		t.Error("new.log should be kept")
+	}
+}
+
+func TestRetention_OnlyLogFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建 .txt 文件（不应被删除）
+	txtPath := filepath.Join(dir, "readme.txt")
+	os.WriteFile(txtPath, []byte("readme"), 0644)
+	oldTime := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(txtPath, oldTime, oldTime)
+
+	cleanDir(dir, 24*time.Hour)
+
+	if _, err := os.Stat(txtPath); os.IsNotExist(err) {
+		t.Error("non-log files should not be deleted")
+	}
+}
+
+func TestRetention_SubDirs(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建子目录下的旧日志
+	subDir := filepath.Join(dir, "error")
+	os.MkdirAll(subDir, 0755)
+	oldPath := filepath.Join(subDir, "old.log")
+	os.WriteFile(oldPath, []byte("old"), 0644)
+	oldTime := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(oldPath, oldTime, oldTime)
+
+	cleanDir(dir, 24*time.Hour)
+
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Error("old log in subdir should be deleted")
 	}
 }

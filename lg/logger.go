@@ -3,8 +3,10 @@ package lg
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -188,28 +190,181 @@ func Module(module string) *Logger {
 	return defaultLogger.Module(module)
 }
 
+// ============================================================================
+// LogOption — 日志配置选项
+// ============================================================================
+
+// LogOption 日志配置选项函数，传入 SetPath 定制日志行为。
+type LogOption func(*logConfig)
+
+type logConfig struct {
+	levelDirs      []levelDir
+	rotateInterval time.Duration
+	rotateSize     int64
+	retention      time.Duration
+}
+
+type levelDir struct {
+	level Level
+	dir   string
+}
+
+// WithLevelDir 将指定级别的日志输出到独立子目录。
+func WithLevelDir(level Level, dir string) LogOption {
+	return func(c *logConfig) {
+		c.levelDirs = append(c.levelDirs, levelDir{level: level, dir: dir})
+	}
+}
+
+// WithRotateByInterval 按时间间隔切割日志文件。
+// 文件名自动追加日期+时钟后缀，精度由间隔决定：
+//   - < 1小时 → pg_2026-08-01_12-00-00.log
+//   - >= 1小时 → pg_2026-08-01_12-00.log
+//   - >= 1天 → pg_2026-08-01.log
+func WithRotateByInterval(d time.Duration) LogOption {
+	return func(c *logConfig) {
+		c.rotateInterval = d
+	}
+}
+
+// WithRotateBySize 按文件大小切割日志文件。
+// 超过 size 字节时自动切换新文件，文件名追加 .001 等序号。
+func WithRotateBySize(size int64) LogOption {
+	return func(c *logConfig) {
+		c.rotateSize = size
+	}
+}
+
+// WithRetention 定时清理过期日志文件。
+// maxAge: 日志保留时长，超过此时间的 .log 文件将被删除。
+// 检查间隔 = min(maxAge, 1小时)。
+func WithRetention(maxAge time.Duration) LogOption {
+	return func(c *logConfig) {
+		c.retention = maxAge
+	}
+}
+
 // SetPath 将默认 Logger 和 Frame Logger 的输出重定向到指定目录下的日志文件。
 // dir: 日志目录，如 "logs"
 // level: 最低输出级别
 // pattern: 文件名模式构建器，Build() 自动追加 .log 后缀
+// opts: 可选配置，如 WithLevelDir 分级目录等
 //
 // 使用示例:
 //
-//	// logs/pg_2026-08-01.log
+//	// 不分级: logs/pg_2026-08-01.log
 //	lg.SetPath("logs", lg.LevelInfo,
 //	    lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"))
 //
-//	// logs/2026-08-01_pg.log
+//	// 按级别分目录:
+//	//   logs/info/pg_2026-08-01.log
+//	//   logs/error/pg_2026-08-01.log
 //	lg.SetPath("logs", lg.LevelInfo,
-//	    lg.NewLogNamePattern().Date("2006-01-02").Char("_").Module())
-func SetPath(dir string, level Level, pattern *LogNamePattern) error {
-	fw, err := NewFileWriterWithLogName(dir, level, pattern.Build())
+//	    lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"),
+//	    lg.WithLevelDir(lg.LevelInfo, "info"),
+//	    lg.WithLevelDir(lg.LevelError, "error"),
+//	)
+func SetPath(dir string, level Level, pattern *LogNamePattern, opts ...LogOption) error {
+	cfg := &logConfig{}
+	for _, o := range opts {
+		o(cfg)
+	}
+
+	// 定时切割：在 pattern 末尾追加日期+时钟
+	if cfg.rotateInterval > 0 {
+		dateLayout, clockLayout := intervalLayout(cfg.rotateInterval)
+		pattern.Char("_").Date(dateLayout)
+		if clockLayout != "" {
+			pattern.Char("_").Clock(clockLayout)
+		}
+	}
+
+	logName := pattern.Build()
+
+	// 没有分级配置：单个 FileWriter
+	if len(cfg.levelDirs) == 0 {
+		fw, err := NewFileWriterWithLogName(dir, level, logName)
+		if err != nil {
+			return err
+		}
+		fw.rotateSize = cfg.rotateSize
+		SetDefault(New(fw))
+		SetFrameWriter(fw)
+		startRetention(dir, cfg.retention)
+		return nil
+	}
+
+	// 有分级配置：默认 dir + 各 LevelDir 子目录，MultiWriter 组合
+	var writers []Writer
+
+	defaultFW, err := NewFileWriterWithLogName(dir, level, logName)
 	if err != nil {
 		return err
 	}
-	SetDefault(New(fw))
-	SetFrameWriter(fw)
+	defaultFW.rotateSize = cfg.rotateSize
+	writers = append(writers, defaultFW)
+
+	for _, ld := range cfg.levelDirs {
+		subDir := dir + "/" + ld.dir
+		fw, err := NewFileWriterWithLogName(subDir, ld.level, logName)
+		if err != nil {
+			return err
+		}
+		fw.rotateSize = cfg.rotateSize
+		writers = append(writers, fw)
+	}
+
+	mw := NewMultiWriter(writers...)
+	SetDefault(New(mw))
+	SetFrameWriter(mw)
+	startRetention(dir, cfg.retention)
 	return nil
+}
+
+// startRetention 启动后台清理 goroutine，定期删除过期日志文件。
+func startRetention(dir string, maxAge time.Duration) {
+	if maxAge <= 0 {
+		return
+	}
+	interval := maxAge
+	if interval > time.Hour {
+		interval = time.Hour
+	}
+	go func() {
+		for {
+			time.Sleep(interval)
+			cleanDir(dir, maxAge)
+		}
+	}()
+}
+
+// cleanDir 递归清理目录中超过 maxAge 的 .log 文件。
+func cleanDir(dir string, maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".log") {
+			return nil
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(path)
+		}
+		return nil
+	})
+}
+
+// intervalLayout 根据时间间隔返回日期和时钟的 format layout。
+func intervalLayout(d time.Duration) (dateLayout, clockLayout string) {
+	switch {
+	case d >= 24*time.Hour:
+		return "2006-01-02", ""
+	case d >= time.Hour:
+		return "2006-01-02", "15-04"
+	default:
+		return "2006-01-02", "15-04-05"
+	}
 }
 
 // ============================================================================
