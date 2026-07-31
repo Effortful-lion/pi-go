@@ -17,6 +17,7 @@
 //	-provider="openai"     LLM 提供商 (openai/anthropic/google)
 //	-base-url=""           自定义 API 地址
 //	-system-prompt=""      系统提示词
+//	-emoji-theme=""        emoji 主题 (default/minimal/monochrome)
 //	-max-steps=10          工具调用最大轮数
 //	-temperature=0.7       采样温度
 //	-max-tokens=0          最大输出 token 数
@@ -46,6 +47,7 @@ type ChatFlags struct {
 	APIKey       string
 	BaseURL      string
 	SystemPrompt string
+	EmojiTheme   string // emoji 主题名称
 	MaxSteps     int
 	Temperature  float64
 	MaxTokens    int
@@ -107,6 +109,7 @@ func runChatCmd(args []string) error {
 	fs.StringVar(&flags.APIKey, "api-key", "", "API key")
 	fs.StringVar(&flags.BaseURL, "base-url", "", "Custom API base URL")
 	fs.StringVar(&flags.SystemPrompt, "system-prompt", "", "System prompt")
+	fs.StringVar(&flags.EmojiTheme, "emoji-theme", "", "Emoji theme (default/minimal/monochrome)")
 	fs.IntVar(&flags.MaxSteps, "max-steps", 0, "Max tool-calling steps")
 	fs.Float64Var(&flags.Temperature, "temperature", 0, "Sampling temperature")
 	fs.IntVar(&flags.MaxTokens, "max-tokens", 0, "Max output tokens")
@@ -135,6 +138,7 @@ Flags:
   -api-key       API Key
   -base-url      自定义 API 地址
   -system-prompt 系统提示词
+  -emoji-theme   emoji 主题 (default/minimal/monochrome)
   -max-steps     工具调用最大轮数 (默认 10)
   -temperature   采样温度 (默认 0.7)
   -max-tokens    最大输出 token 数
@@ -142,6 +146,6 @@ Flags:
 
 配置文件: ~/.pi-go/config.yaml 或 ./.pi-go.yaml
 环境变量: OPENAI_API_KEY, PI_PROVIDER, PI_MODEL, PI_BASE_URL,
-          PI_SYSTEM_PROMPT, PI_MAX_STEPS, PI_TEMPERATURE, PI_MAX_TOKENS
+          PI_SYSTEM_PROMPT, PIGO_EMOJI_THEME, PI_MAX_STEPS, PI_TEMPERATURE, PI_MAX_TOKENS
 `)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Effortful-lion/pi-go/agent"
 	"github.com/Effortful-lion/pi-go/ai"
+	"github.com/Effortful-lion/pi-go/emoji"
 	"github.com/Effortful-lion/pi-go/lg"
 )
 
@@ -16,9 +17,10 @@ var logger = lg.Module("[tui]")
 
 // ChatUI 交互式对话界面，基于终端 I/O 驱动 Agent 对话。
 type ChatUI struct {
-	agent  *agent.Agent
-	prompt string // 输入提示符
-	out    *os.File
+	agent        *agent.Agent
+	prompt       string // 输入提示符
+	out          *os.File
+	emojiResolver *emoji.Resolver // emoji 主题解析器
 }
 
 // ChatUIOption ChatUI 配置选项。
@@ -31,12 +33,20 @@ func WithWriter(w *os.File) ChatUIOption {
 	}
 }
 
+// WithEmojiResolver 设置 emoji 主题解析器
+func WithEmojiResolver(resolver *emoji.Resolver) ChatUIOption {
+	return func(ui *ChatUI) {
+		ui.emojiResolver = resolver
+	}
+}
+
 // NewChatUI 创建对话 UI。
 func NewChatUI(ag *agent.Agent, opts ...ChatUIOption) *ChatUI {
 	ui := &ChatUI{
-		agent:  ag,
-		prompt: "> ",
-		out:    os.Stdout,
+		agent:         ag,
+		prompt:        "> ",
+		out:           os.Stdout,
+		emojiResolver: emoji.DefaultResolver, // 使用默认 emoji 主题
 	}
 	for _, o := range opts {
 		o(ui)
@@ -147,6 +157,9 @@ func (ui *ChatUI) printHelp() {
 func (ui *ChatUI) ExportConversation(path string) error {
 	messages := ui.agent.Messages()
 
+	userPrefix := ui.emojiResolver.Resolve(emoji.SlotUser)
+	assistantPrefix := ui.emojiResolver.Resolve(emoji.SlotAssistant)
+
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# Pi Agent 对话记录\n\n"))
 	b.WriteString(fmt.Sprintf("导出时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
@@ -159,11 +172,11 @@ func (ui *ChatUI) ExportConversation(path string) error {
 			b.WriteString(msg.Content)
 			b.WriteString("\n```\n\n")
 		case ai.RoleUser:
-			b.WriteString("## 👤 用户\n\n")
+			b.WriteString(fmt.Sprintf("## %s 用户\n\n", userPrefix))
 			b.WriteString(msg.Content)
 			b.WriteString("\n\n")
 		case ai.RoleAssistant:
-			b.WriteString("## 🤖 助手\n\n")
+			b.WriteString(fmt.Sprintf("## %s 助手\n\n", assistantPrefix))
 			b.WriteString(msg.Content)
 			for _, block := range msg.Blocks {
 				if block.Type == ai.BlockToolCall && block.ToolCall != nil {
@@ -199,15 +212,16 @@ func (ui *ChatUI) printGoodbye() {
 // printUserInput 回显用户输入。
 func (ui *ChatUI) printUserInput(input string) {
 	fmt.Fprintln(ui.out)
-	fmt.Fprint(ui.out, Cyan("💬 "))
+	userPrefix := ui.emojiResolver.Resolve(emoji.SlotUser)
+	fmt.Fprint(ui.out, Cyan(userPrefix + " "))
 	fmt.Fprintln(ui.out, input)
 	fmt.Fprintln(ui.out)
 }
 
 // renderAgentStream 消费 agent.Event 流并渲染到终端。
 func (ui *ChatUI) renderAgentStream(stream agent.Stream) {
-	botPrefix := Green("🤖 ")
-	fmt.Fprint(ui.out, botPrefix)
+	botPrefix := ui.emojiResolver.Resolve(emoji.SlotAssistant)
+	fmt.Fprint(ui.out, Green(botPrefix+" "))
 
 	var lineLen int // 当前行已输出的字符数（不含 ANSI）
 	firstTextDelta := true
@@ -228,14 +242,16 @@ func (ui *ChatUI) renderAgentStream(stream agent.Stream) {
 				fmt.Fprintln(ui.out)
 				lineLen = 0
 			}
-			fmt.Fprint(ui.out, Dim(fmt.Sprintf("[调用工具 %s]", evt.ToolCall.Name)))
+			toolPrefix := ui.emojiResolver.Resolve(emoji.SlotToolCall)
+			fmt.Fprint(ui.out, Dim(fmt.Sprintf("%s %s", toolPrefix, evt.ToolCall.Name)))
 			fmt.Fprintln(ui.out)
 			lineLen = 0
 
 		case agent.EventToolResult:
 			// 工具结果（截断显示）
 			truncated := truncate(evt.ToolResult, 100)
-			fmt.Fprint(ui.out, Dim(fmt.Sprintf("[工具结果] %s", truncated)))
+			resultPrefix := ui.emojiResolver.Resolve(emoji.SlotToolResult)
+			fmt.Fprint(ui.out, Dim(fmt.Sprintf("%s %s", resultPrefix, truncated)))
 			fmt.Fprintln(ui.out)
 			lineLen = 0
 
@@ -258,7 +274,8 @@ func (ui *ChatUI) renderAgentStream(stream agent.Stream) {
 
 		case agent.EventError:
 			fmt.Fprintln(ui.out)
-			fmt.Fprintln(ui.out, Red(fmt.Sprintf("✖ %v", evt.Err)))
+			errorPrefix := ui.emojiResolver.Resolve(emoji.SlotError)
+			fmt.Fprintln(ui.out, Red(fmt.Sprintf("%s %v", errorPrefix, evt.Err)))
 			lineLen = 0
 		}
 	}

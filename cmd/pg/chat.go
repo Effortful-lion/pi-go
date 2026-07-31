@@ -11,6 +11,7 @@ import (
 	"github.com/Effortful-lion/pi-go/ai/providers/google"
 	myopenai "github.com/Effortful-lion/pi-go/ai/providers/my-openai"
 	"github.com/Effortful-lion/pi-go/ai/providers/openai"
+	"github.com/Effortful-lion/pi-go/emoji"
 	"github.com/Effortful-lion/pi-go/tui"
 )
 
@@ -30,6 +31,7 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 	model := resolveString(cfg, "model", cliFlags.Model, "PI_MODEL")
 	baseURL := resolveString(cfg, "base-url", cliFlags.BaseURL, "PI_BASE_URL")
 	systemPrompt := resolveString(cfg, "system-prompt", cliFlags.SystemPrompt, "PI_SYSTEM_PROMPT")
+	emojiTheme := resolveString(cfg, "emoji-theme", cliFlags.EmojiTheme, "PIGO_EMOJI_THEME")
 	maxSteps := resolveInt(cfg, "max-steps", cliFlags.MaxSteps, "PI_MAX_STEPS")
 	temperature := resolveFloat(cfg, "temperature", cliFlags.Temperature, "PI_TEMPERATURE")
 	maxTokens := resolveInt(cfg, "max-tokens", cliFlags.MaxTokens, "PI_MAX_TOKENS")
@@ -63,6 +65,9 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 		maxSteps = 10
 	}
 
+	// 创建 emoji 解析器
+	emojiResolver := emoji.NewResolver(emoji.DefaultRegistry, emojiTheme)
+
 	// 创建 Provider（按 provider 名称选择）
 	prov := newProvider(provider, apiKey, baseURL)
 
@@ -81,13 +86,14 @@ func runChat(cfg *PiConfig, cliFlags *ChatFlags) error {
 		Provider:     prov,
 		ModelID:      model,
 		SystemPrompt: systemPrompt,
+		EmojiTheme:   emojiTheme,
 		MaxSteps:     maxSteps,
 		Temperature:  temperature,
 		MaxTokens:    maxTokens,
 	})
 
 	// 开始对话
-	ui := tui.NewChatUI(ag)
+	ui := tui.NewChatUI(ag, tui.WithEmojiResolver(emojiResolver))
 	if cliFlags.Session != "" {
 		fmt.Fprintf(os.Stdout, tui.Dim("[session: %s]\n"), cliFlags.Session)
 	}
