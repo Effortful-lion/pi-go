@@ -347,6 +347,14 @@ func TestSetPath_WithLevelDir(t *testing.T) {
 	if len(infoEntries) == 0 {
 		t.Error("expected log file in info/ directory")
 	}
+
+	// 根目录不应该有日志文件（避免重复输出）
+	rootEntries, _ := os.ReadDir(dir)
+	for _, e := range rootEntries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".log") {
+			t.Errorf("root directory should NOT contain log files, got: %s", e.Name())
+		}
+	}
 }
 
 func TestSetPath_LevelFilter(t *testing.T) {
@@ -570,5 +578,44 @@ func TestRetention_SubDirs(t *testing.T) {
 
 	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
 		t.Error("old log in subdir should be deleted")
+	}
+}
+
+// TestModule_FollowsSetDefault 验证包级 Module() 创建的子 Logger
+// 会跟随 defaultLogger 的 writer 变化（SetPath 通过 SetDefault 替换）。
+//
+// 模拟场景：
+//  1. 包初始化时通过 var logger = lg.Module("my-openai") 创建子 Logger
+//     （此时 defaultLogger 是 ConsoleWriter，绑定到 stdout）
+//  2. 之后调用 lg.SetPath() 替换 defaultLogger 为 FileWriter
+//  3. 子 Logger 调用 Info()，期望写入文件而不是 stdout
+func TestModule_FollowsSetDefault(t *testing.T) {
+	dir := t.TempDir()
+	pattern := NewLogNamePattern().Date("2006-01-02")
+
+	// 模拟包初始化时创建的子 Logger
+	subLogger := Module("my-openai")
+
+	// 之后调用 SetPath 替换 defaultLogger
+	if err := SetPath(dir, LevelInfo, pattern); err != nil {
+		t.Fatal(err)
+	}
+
+	// 子 Logger 写日志，应该写入文件
+	subLogger.Info("after SetPath")
+
+	// 验证日志文件被创建
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("sub logger should have written to file after SetPath")
+	}
+
+	// 检查日志内容
+	data, _ := os.ReadFile(dir + "/" + entries[0].Name())
+	if !strings.Contains(string(data), "after SetPath") {
+		t.Errorf("expected log content in file, got: %s", data)
 	}
 }

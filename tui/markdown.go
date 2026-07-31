@@ -71,16 +71,16 @@ func renderInline(line string) string {
 
 	// 标题
 	if strings.HasPrefix(trimmed, "#### ") {
-		return Bold(line) // ## 到 #### 都用粗体
+		return Bold(strings.TrimPrefix(trimmed, "#### "))
 	}
 	if strings.HasPrefix(trimmed, "### ") {
-		return Bold(Underline(trimmed))
+		return Bold(strings.TrimPrefix(trimmed, "### "))
 	}
 	if strings.HasPrefix(trimmed, "## ") {
-		return Bold(Underline(trimmed))
+		return Bold(strings.TrimPrefix(trimmed, "## "))
 	}
 	if strings.HasPrefix(trimmed, "# ") {
-		return Bold(Underline(trimmed))
+		return Bold(strings.TrimPrefix(trimmed, "# "))
 	}
 
 	// 无序列表

@@ -26,10 +26,11 @@ import (
 //	userLog := lg.New(userWriter).Module("user")
 //	userLog.Info("用户登录成功")
 type Logger struct {
-	module     string // 所属模块
-	writer     Writer // 输出目标（通常是 Router）
-	fields     Fields // 预置的固定字段
-	callerSkip int    // 调用栈跳过层数
+	module     string  // 所属模块
+	writer     Writer  // 输出目标（通常是 Router）
+	writerSrc  *Logger // writer 来源 Logger：非空时 log 从此 Logger 动态读取 writer
+	fields     Fields  // 预置的固定字段
+	callerSkip int     // 调用栈跳过层数
 }
 
 // New 创建一个日志记录器。
@@ -45,6 +46,10 @@ func New(writer Writer) *Logger {
 
 // Module 创建一个绑定到指定模块的子 Logger。
 // 该 Logger 的所有日志都会带上模块名，Router 会根据模块名分流。
+//
+// 子 Logger 与父 Logger 共享同一个 writer 引用。
+// 注意：子 Logger 在创建时复制父 Logger 的 writer，
+// 如需在 SetDefault/SetPath 后自动跟随，应使用包级 Module() 函数创建。
 func (l *Logger) Module(module string) *Logger {
 	return &Logger{
 		module:     module,
@@ -126,7 +131,15 @@ func (l *Logger) Fatalf(format string, args ...any) {
 
 // log 是内部统一的日志写入方法。
 func (l *Logger) log(level Level, msg string, fields ...Fields) {
-	if level < l.writer.Level() {
+	// writerSrc 非空时从源 Logger 动态读取 writer（用于 Module() 子 Logger 跟随 defaultLogger 变化）
+	w := l.writer
+	if l.writerSrc != nil {
+		w = l.writerSrc.writer
+	}
+	if w == nil {
+		return
+	}
+	if level < w.Level() {
 		return
 	}
 
@@ -150,7 +163,7 @@ func (l *Logger) log(level Level, msg string, fields ...Fields) {
 		Fields:  merged,
 	}
 
-	_ = l.writer.Write(entry)
+	_ = w.Write(entry)
 }
 
 // caller 获取调用者的文件名和行号。
@@ -173,11 +186,22 @@ func caller(skip int) string {
 // 包级别便捷函数 — 使用默认 Logger
 // ============================================================================
 
+// defaultLogger 是包级别默认 Logger。
 var defaultLogger = New(NewConsoleWriter(os.Stdout, LevelInfo))
 
-// SetDefault 设置默认 Logger。
+// SetDefault 替换默认 Logger。
+// 注意：此方式不会更新已通过包级 Module() 创建的子 Logger，
+// 因为它们持有 defaultLogger 指针（指向旧对象）。
+// 推荐用 SetDefaultWriter 只修改 writer 字段，保持子 Logger 引用有效。
 func SetDefault(l *Logger) {
 	defaultLogger = l
+}
+
+// SetDefaultWriter 替换默认 Logger 的 writer 字段。
+// 所有通过包级 Module() 创建的子 Logger 会自动跟随新 writer，
+// 因为子 Logger 持有 defaultLogger 指针，log 时从其 writer 字段读取。
+func SetDefaultWriter(w Writer) {
+	defaultLogger.writer = w
 }
 
 // Default 返回默认 Logger。
@@ -186,8 +210,17 @@ func Default() *Logger {
 }
 
 // Module 使用默认 Logger 创建模块子 Logger。
+//
+// 子 Logger 持有 defaultLogger 指针作为 writerSrc，
+// log 时从 defaultLogger.writer 动态读取最新 writer。
+// 通过 SetDefaultWriter 修改 defaultLogger.writer 后，子 Logger 自动跟随。
 func Module(module string) *Logger {
-	return defaultLogger.Module(module)
+	return &Logger{
+		module:     module,
+		writerSrc:  defaultLogger,
+		fields:     defaultLogger.fields,
+		callerSkip: 3, // Module → Debug/Info... → caller
+	}
 }
 
 // ============================================================================
@@ -288,21 +321,15 @@ func SetPath(dir string, level Level, pattern *LogNamePattern, opts ...LogOption
 			return err
 		}
 		fw.rotateSize = cfg.rotateSize
-		SetDefault(New(fw))
+		SetDefaultWriter(fw)
 		SetFrameWriter(fw)
 		startRetention(dir, cfg.retention)
 		return nil
 	}
 
-	// 有分级配置：默认 dir + 各 LevelDir 子目录，MultiWriter 组合
+	// 有分级配置：各 LevelDir 子目录，MultiWriter 组合
+	// 注意：不创建根目录汇总文件，避免日志同时出现在根目录和子目录
 	var writers []Writer
-
-	defaultFW, err := NewFileWriterWithLogName(dir, level, logName)
-	if err != nil {
-		return err
-	}
-	defaultFW.rotateSize = cfg.rotateSize
-	writers = append(writers, defaultFW)
 
 	for _, ld := range cfg.levelDirs {
 		subDir := dir + "/" + ld.dir
@@ -315,7 +342,7 @@ func SetPath(dir string, level Level, pattern *LogNamePattern, opts ...LogOption
 	}
 
 	mw := NewMultiWriter(writers...)
-	SetDefault(New(mw))
+	SetDefaultWriter(mw)
 	SetFrameWriter(mw)
 	startRetention(dir, cfg.retention)
 	return nil
