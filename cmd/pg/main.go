@@ -35,9 +35,11 @@ import (
 	"github.com/Effortful-lion/pi-go/lg"
 )
 
-// ldflags 注入变量（构建时设置）
+// ldflags 注入变量（构建时设置）。
+// 版本号唯一来源是 git tag，不在此硬编码。
+// goreleaser 发布时自动注入：-X main.version={{.Version}}
 var (
-	version   = "dev"   // git tag，如 v1.0.0
+	version   = "dev"   // 发布时自动注入 git tag
 	commit    = "none"  // git rev-parse --short HEAD
 	buildDate = "none"  // 构建时间 UTC
 )
