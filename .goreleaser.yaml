@@ -32,6 +32,7 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+# changelog 从 commit 自动生成简要列表（Release 底部附注）
 changelog:
   sort: asc
   filters:
@@ -43,3 +44,22 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Release 正文引用 version-log 文件（从 change-log 总结的版本发布说明）
+  header: |
+    {{ if .HasHeaderFile }}## 发版说明
+    {{ .HeaderContent }}
+
+    {{ end }}
+  header_file: version-log/{{ trimprefix .Version "v" }}.md
+  footer: |
+    ---
+
+    ## 安装
+
+    ```bash
+    # macOS (Apple Silicon)
+    curl -fsSL https://raw.githubusercontent.com/Effortful-lion/pi-go/main/install.sh | bash
+
+    # 或 go install
+    go install github.com/Effortful-lion/pi-go/cmd/pg@{{ .Version }}
+    ```
