@@ -6,7 +6,6 @@
 |---|------|------|------|
 | 1 | `ai/providers/my-openai/provider.go` | 114 | `chat()` 方法中 `buildOpenAIRuquestBody` 未实现 |
 | 2 | `ai/providers/my-openai/provider.go` | 257 | 流式解析中工具调用的累积处理不完整 |
-| 3 | `ai/providers/my-openai/provider.go` | 306 | 请求体 message 组合顺序待验证 |
 
 ## 近期开发
 

@@ -302,8 +302,8 @@ type OpenAIRuquest struct {
 }
 
 func (m *model) buildOpenAIRuquestBody(c ai.Context) OpenAIRuquest {
-	// request 结构: 遵循什么？就是我们说的：
-	// TODO 比如message 历史、系统提示词、ai反馈词、用户提示词等需要组合顺序？这里可能得查一下了（最后验证我们的写法）
+	// Messages 顺序：System → User/Assistant 交替 → Tool 紧跟在 Assistant 之后。
+	// 历史消息由 agent.runLoop() 保证交替顺序，此处只需遍历追加即可。
 
 	// 系统提示词
 	message := make([]ai.Message, 0)
