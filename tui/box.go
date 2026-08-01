@@ -80,7 +80,9 @@ func (b *Box) Render() string {
 		if padding < 0 {
 			padding = 0
 		}
-		b.out.WriteString(" " + line + strings.Repeat(" ", padding-1))
+		b.out.WriteString(" ")
+		b.out.WriteString(line)
+		b.out.WriteString(strings.Repeat(" ", padding-1))
 		b.out.WriteString(" │\n")
 	}
 
@@ -96,5 +98,3 @@ func (b *Box) Render() string {
 func (b *Box) RenderTo(sb *strings.Builder) {
 	sb.WriteString(b.Render())
 }
-
-
