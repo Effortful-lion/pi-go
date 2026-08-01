@@ -29,6 +29,7 @@ Pi-Go Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 G
   - [扩展 TUI 能力](#扩展-tui-能力)
 - [API 参考](#api-参考)
 - [命令参考](#命令参考)
+- [TODO](#todo)
 - [贡献指南](#贡献指南)
 
 ---
@@ -882,9 +883,11 @@ git push
 4. 填写改动说明，提交 PR 等待审核
 ```
 
-**PR 自动检查：** CI 会跑 `golangci-lint` + `go test -race`（Go 1.21 / 1.23），全部通过才能合并。
+**PR 自动检查：** CI 会跑 `golangci-lint` + `go test -race`（Go 版本由 `go.mod` 决定），全部通过才能合并。
 
 **Commit 格式：** `feat|fix|docs|chore(模块): 描述`
+
+**认领任务：** 查看 [TODO.md](TODO.md) 选择待办事项。认领后直接提 PR 并引用 TODO 编号（如 `#4`）。
 
 **新增 Provider：** 参考 [如何新增 LLM Provider](#如何新增-llm-provider)，在 `ai/providers/` 下新建子包，`chat.go` 中注册。
 
