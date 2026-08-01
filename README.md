@@ -861,19 +861,25 @@ git add <files>
 git commit -m "feat(module): 描述你的改动" 
 
 # 5. 推送
-第一次push:
-git push -u origin feat/my-feature
-之后直接push:
+# - 第一次push:
+git push origin --set-upstream feat/my-feature
+# - 之后直接push:
 git push
 
 # 6. 提 PR
-提PR前：先合并 main
-git fetch origin main
-git merge origin/main
-# 处理冲突后 commit & push
-git commit -m "merge main"
+# - 先切到main，pull到最新代码
+git switch main
+git pull / git pull upstream main
+# - 提PR前：先合并代码到开发分支
+git merge main
+# - 如果存在冲突处理冲突后 commit & push；不存在冲突就直接 push
+git commit -m "处理冲突"
 git push
-# 在 GitHub 上打开 Pull Request → main 分支
+# - 提PR
+1. 打开个人 fork 仓库页面
+2. 点击 Compare & pull request
+3. 目标分支选择官方仓库 `main`
+4. 填写改动说明，提交 PR 等待审核
 ```
 
 **PR 自动检查：** CI 会跑 `golangci-lint` + `go test -race`（Go 1.21 / 1.23），全部通过才能合并。
