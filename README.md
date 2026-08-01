@@ -1,6 +1,6 @@
-# Pi Agent — AI Coding Assistant in Go
+# Pi-Go Agent — AI Coding Assistant in Go
 
-Pi Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 Go 项目的 **Agent 开发库**。
+Pi-Go Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 Go 项目的 **Agent 开发库**。
 
 核心能力：
 - 多 LLM 提供商统一接口（OpenAI / Anthropic Claude / Google Gemini）
@@ -36,34 +36,26 @@ Pi Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 Go �
 
 ### 安装
 
-**方式 A：远程安装（一键，推荐）**
+**方式 A：一键安装（推荐，无需 Go 环境）**
 
-直接安装到 `$GOPATH/bin/`，自动配置 PATH。安装完成后执行 `source ~/.zshrc` 使配置在当前会话生效。
+自动检测 OS/Arch，从 GitHub Releases 下载预编译二进制。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Effortful-lion/pi-go/main/install.sh | bash
-source ~/.zshrc
 ```
 
-**方式 B：源码快速启动**
-
-已 clone 仓库后，一键编译安装并配置 PATH。执行完成后需 `source ~/.zshrc`。
+**方式 B：go install（需 Go 环境）**
 
 ```bash
-./quickstart.sh
-source ~/.zshrc
-```
-
-**方式 C：手动安装**
-
-```bash
-# 远程安装
 go install github.com/Effortful-lion/pi-go/cmd/pg@latest
+```
 
-# 或本地编译
+**方式 C：本地编译**
+
+```bash
 git clone https://github.com/Effortful-lion/pi-go.git
 cd pi-go
-go install ./cmd/pg/
+make install      # 编译安装到 $GOPATH/bin
 ```
 
 > **PATH 配置：** 如果 `pg` 命令未找到，需要确保 `$GOPATH/bin` 在 PATH 中：
@@ -269,7 +261,9 @@ func main() {
 ```
 pi-go/
 ├── cmd/pg/             # CLI 入口：命令路由、配置解析
-│   ├── main.go         #   子命令分发 (chat/config/version/help)
+│   ├── main.go         #   公共代码 (printVersion/printHelp)
+│   ├── main_unix.go    #   Unix 子命令路由 (chat/config/version/help)
+│   ├── main_windows.go #   Windows 子命令路由（基础命令）
 │   ├── chat.go         #   chat 命令：组装 Provider + Agent + TUI
 │   ├── config.go       #   配置结构体 + YAML 加载/保存
 │   └── config_cmd.go   #   config 子命令 (init/show/set)
@@ -294,7 +288,7 @@ pi-go/
 │       ├── file.go     #     read_file / write_file / list_dir / search_file
 │       └── shell.go    #     shell 执行
 │
-├── tui/                # 终端 UI —— 交互界面
+├── tui/                # 终端 UI —— 交互界面 (!windows)
 │   ├── chat.go         #   ChatUI + 对话内命令处理 + 对话导出
 │   ├── terminal.go     #   终端原语 + LineEditor (多行/历史/补全)
 │   ├── highlight.go    #   语法高亮 (Go/Python/JS/Shell/JSON/YAML)
@@ -303,6 +297,10 @@ pi-go/
 ├── lg/                 # 日志库
 ├── docs/               # 设计文档 & 学习总结
 ├── change-log/         # 变更日志
+├── Makefile            # 开发/构建/发布命令
+├── pack.sh             # 本地手动打包
+├── install.sh          # 一键安装脚本
+├── .goreleaser.yaml    # goreleaser 发布配置
 └── go.mod
 ```
 
@@ -793,6 +791,8 @@ func (ui *ChatUI) ExportConversation(path string) error
 
 ## 命令参考
 
+### pg 命令
+
 | 命令 | 描述 |
 |------|------|
 | `pg` | 启动交互式对话 |
@@ -802,3 +802,35 @@ func (ui *ChatUI) ExportConversation(path string) error
 | `pg config set <k> <v>` | 设置配置项 |
 | `pg version` | 显示版本 |
 | `pg help` | 显示帮助 |
+
+### Makefile（开发用）
+
+**编译、打包、发布**
+
+| 命令 | 说明 |
+|------|------|
+| `make build` | 本地发布构建（ldflags 注入 tag） |
+| `make pack` | 手动交叉编译打包 darwin/arm64 + windows/amd64 |
+| `make release` | 推送 tag 触发 CI 发布 GitHub Release |
+
+**代码检查**
+
+| 命令 | 说明 |
+|------|------|
+| `make lint` | 运行 golangci-lint |
+| `make test` | 全量测试 + 竞态检测 |
+
+**发布 tag 版本管理**
+
+| 命令 | 说明 |
+|------|------|
+| `make version` | 查看最新 tag |
+| `make next-version` | 交互式输入新版本号并打 tag |
+
+**其他**
+
+| 命令 | 说明 |
+|------|------|
+| `make run` | 本地编译并运行 |
+| `make clean` | 清理构建产物 |
+| `make help` | 显示帮助 |
