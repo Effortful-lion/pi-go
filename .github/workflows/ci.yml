@@ -16,19 +16,16 @@ jobs:
         with:
           go-version: '1.23'
           check-latest: true
-      - name: install golangci-lint
-        run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
       - name: run golangci-lint
-        run: golangci-lint run ./...
+        run: |
+          go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run ./... 2>&1
 
   test:
     name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.23']
+        go-version: ['1.23', '1.26']
 
     steps:
       - uses: actions/checkout@v5
