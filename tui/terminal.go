@@ -530,8 +530,12 @@ func (le *LineEditor) ReadLine() (string, bool) {
 			continue
 		}
 
-		// --- Alt+Enter (\033\r 或 \033\n) ---
-		if len(seq) >= 2 && seq[0] == '\033' && (seq[1] == '\r' || seq[1] == '\n') {
+		// --- Shift+Enter（kitty protocol: \033[13;2u）或 Alt+Enter（\033\r / \033\n）---
+		// kitty protocol 格式: \033[<key>;<modifiers>u，其中 modifiers 的第 2 位 = Shift
+		isShiftEnter := len(seq) == 6 && seq[0] == '\033' && seq[1] == '[' &&
+			seq[2] == '1' && seq[3] == '3' && seq[4] == ';' && seq[5] == 'u'
+		isAltEnter := len(seq) >= 2 && seq[0] == '\033' && (seq[1] == '\r' || seq[1] == '\n')
+		if isShiftEnter || isAltEnter {
 			if histIdx >= 0 {
 				continue
 			}
