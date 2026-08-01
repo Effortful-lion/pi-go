@@ -247,7 +247,7 @@ func (w *FileWriter) Write(entry *Entry) error {
 			}
 			fullPath := w.dir + "/" + name
 			if d := pathDir(fullPath); d != "" {
-				os.MkdirAll(d, 0o755)
+				_ = os.MkdirAll(d, 0o755)
 			}
 			f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {

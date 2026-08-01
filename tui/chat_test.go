@@ -95,7 +95,7 @@ func captureOutput() (buf *bytes.Buffer, restore func()) {
 
 	restore = func() {
 		w.Close()
-		buf.ReadFrom(r)
+		_, _ = buf.ReadFrom(r)
 		os.Stdout = oldStdout
 	}
 	return buf, restore

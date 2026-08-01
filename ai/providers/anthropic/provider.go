@@ -234,9 +234,10 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var (
-		textSeq     int  = -1 // 当前文本块序号
-		toolIdx     int  = -1 // 当前工具调用序号
-		textStarted bool       // 是否有过文本开始事件
+		textSeq     int    = -1 // 当前文本块序号
+		toolIdx     int         // 当前工具调用序号
+		textStarted bool        // 是否有过文本开始事件
+		evtType     string      // 当前事件类型
 	)
 
 	type toolState struct {
@@ -250,7 +251,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 		line := scanner.Text()
 
 		// Anthropic SSE 格式: "event: <type>" 后跟 "data: <json>"
-		evtType, data := "", ""
+		data := ""
 		if v, ok := strings.CutPrefix(line, "event: "); ok {
 			evtType = strings.TrimSpace(v)
 			continue

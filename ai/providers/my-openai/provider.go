@@ -357,9 +357,7 @@ func (m *model) buildOpenAIRuquestBody(c ai.Context) OpenAIRuquest {
 	}
 
 	// 如果有工具，说明需要工具调用
-	for _, tool := range c.Tools {
-		req.Tools = append(req.Tools, tool)
-	}
+	req.Tools = append(req.Tools, c.Tools...)
 
 	if c.MaxTokens > 0 {
 		req.MaxTokens = c.MaxTokens

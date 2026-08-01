@@ -64,7 +64,7 @@ func EnterRawMode() (restore func(), err error) {
 	}
 
 	restore = func() {
-		syscall.Syscall6(
+		_, _, _ = syscall.Syscall6(
 			syscall.SYS_IOCTL, uintptr(fd),
 			ioctlWriteTermios, uintptr(unsafe.Pointer(&oldState)),
 			0, 0, 0,

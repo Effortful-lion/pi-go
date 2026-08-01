@@ -12,10 +12,7 @@ import (
 	"github.com/Effortful-lion/pi-go/agent"
 	"github.com/Effortful-lion/pi-go/ai"
 	"github.com/Effortful-lion/pi-go/emoji"
-	"github.com/Effortful-lion/pi-go/lg"
 )
-
-var logger = lg.Module("[tui]")
 
 // ChatUI 交互式对话界面，基于终端 I/O 驱动 Agent 对话。
 type ChatUI struct {
@@ -166,7 +163,7 @@ func (ui *ChatUI) ExportConversation(path string) error {
 	assistantPrefix := ui.emojiResolver.Resolve(emoji.SlotAssistant)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# Pi-Go Agent 对话记录\n\n"))
+	b.WriteString("# Pi-Go Agent 对话记录\n\n")
 	b.WriteString(fmt.Sprintf("导出时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
 	b.WriteString("---\n\n")
 

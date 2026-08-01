@@ -117,11 +117,11 @@ func configSet(key, value string) {
 	case "system_prompt":
 		cfg.SystemPrompt = value
 	case "max_steps":
-		fmt.Sscanf(value, "%d", &cfg.MaxSteps)
+		_, _ = fmt.Sscanf(value, "%d", &cfg.MaxSteps)
 	case "temperature":
-		fmt.Sscanf(value, "%f", &cfg.Temperature)
+		_, _ = fmt.Sscanf(value, "%f", &cfg.Temperature)
 	case "max_tokens":
-		fmt.Sscanf(value, "%d", &cfg.MaxTokens)
+		_, _ = fmt.Sscanf(value, "%d", &cfg.MaxTokens)
 	case "emoji_theme":
 		cfg.EmojiTheme = value
 	default:

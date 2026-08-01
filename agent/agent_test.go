@@ -114,19 +114,6 @@ func makeToolCallEvents(id, name, args string, index int) []ai.Event {
 	}
 }
 
-// makeTextAndToolCallEvents 创建文本 + 工具调用组合（同一次 LLM 响应）。
-func makeTextAndToolCallEvents(text string, tcID, tcName, tcArgs string) []ai.Event {
-	return []ai.Event{
-		{Type: ai.EventTextStart, Index: 0},
-		{Type: ai.EventTextDelta, Text: text, Index: 0},
-		{Type: ai.EventTextEnd, Index: 0},
-		{Type: ai.EventToolCallStart, TC: &ai.ToolCall{ID: tcID, Name: tcName}, Index: 1},
-		{Type: ai.EventToolCallDelta, TC: &ai.ToolCall{Arguments: tcArgs}, Index: 1},
-		{Type: ai.EventToolCallEnd, Index: 1},
-		{Type: ai.EventDone},
-	}
-}
-
 // collectEvents 从 Stream 收集所有事件，返回列表。
 func collectEvents(stream Stream) []Event {
 	var events []Event

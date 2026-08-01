@@ -50,7 +50,7 @@ func runChatCmd(args []string) error {
 	fs.Float64Var(&flags.Temperature, "temperature", 0, "Sampling temperature")
 	fs.IntVar(&flags.MaxTokens, "max-tokens", 0, "Max output tokens")
 	fs.StringVar(&flags.Session, "session", "", "Session name for resume")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	cfg := loadConfig()
 	return runChat(cfg, &flags)

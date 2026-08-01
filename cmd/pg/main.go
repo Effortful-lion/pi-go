@@ -80,7 +80,7 @@ func main() {
 // 不创建根目录汇总文件，避免 INFO 日志同时出现在根目录和子目录。
 // INFO 日志不会出现在终端，只有 WARN/ERROR 及以上才会。
 func initLogging() {
-	lg.SetPath("logs", lg.LevelInfo,
+	_ = lg.SetPath("logs", lg.LevelInfo,
 		lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"),
 		lg.WithLevelDir(lg.LevelInfo, "info"),
 		lg.WithLevelDir(lg.LevelError, "error"),

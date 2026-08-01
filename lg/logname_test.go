@@ -107,7 +107,7 @@ func TestNewFileWriterWithLogName_SwitchFile(t *testing.T) {
 		Module:  "pg",
 		Message: "day1",
 	}
-	fw.Write(entryA)
+	_ = fw.Write(entryA)
 
 	entryB := &Entry{
 		Time:    time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
@@ -115,7 +115,7 @@ func TestNewFileWriterWithLogName_SwitchFile(t *testing.T) {
 		Module:  "pg",
 		Message: "day2",
 	}
-	fw.Write(entryB)
+	_ = fw.Write(entryB)
 
 	for _, name := range []string{"2026-08-01.log", "2026-08-02.log"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {

@@ -168,7 +168,7 @@ func (m *model) buildRequest(ctx ai.Context) map[string]any {
 			for _, b := range msg.Blocks {
 				if b.Type == ai.BlockToolCall && b.ToolCall != nil {
 					var args map[string]any
-					json.Unmarshal([]byte(b.ToolCall.Arguments), &args)
+					_ = json.Unmarshal([]byte(b.ToolCall.Arguments), &args)
 					parts = append(parts, map[string]any{
 						"functionCall": map[string]any{
 							"name": b.ToolCall.Name,

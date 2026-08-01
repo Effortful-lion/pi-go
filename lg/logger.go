@@ -368,7 +368,7 @@ func startRetention(dir string, maxAge time.Duration) {
 // cleanDir 递归清理目录中超过 maxAge 的 .log 文件。
 func cleanDir(dir string, maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}

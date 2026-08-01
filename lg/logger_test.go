@@ -528,13 +528,13 @@ func TestRetention_CleanOldFiles(t *testing.T) {
 
 	// 创建一个"旧"日志文件（修改时间设为 2 天前）
 	oldPath := filepath.Join(dir, "old.log")
-	os.WriteFile(oldPath, []byte("old"), 0644)
+	_ = os.WriteFile(oldPath, []byte("old"), 0644)
 	oldTime := time.Now().Add(-48 * time.Hour)
-	os.Chtimes(oldPath, oldTime, oldTime)
+	_ = os.Chtimes(oldPath, oldTime, oldTime)
 
 	// 创建一个"新"日志文件
 	newPath := filepath.Join(dir, "new.log")
-	os.WriteFile(newPath, []byte("new"), 0644)
+	_ = os.WriteFile(newPath, []byte("new"), 0644)
 
 	// 保留 24 小时，应删除 old.log
 	cleanDir(dir, 24*time.Hour)
@@ -552,9 +552,9 @@ func TestRetention_OnlyLogFiles(t *testing.T) {
 
 	// 创建 .txt 文件（不应被删除）
 	txtPath := filepath.Join(dir, "readme.txt")
-	os.WriteFile(txtPath, []byte("readme"), 0644)
+	_ = os.WriteFile(txtPath, []byte("readme"), 0644)
 	oldTime := time.Now().Add(-48 * time.Hour)
-	os.Chtimes(txtPath, oldTime, oldTime)
+	_ = os.Chtimes(txtPath, oldTime, oldTime)
 
 	cleanDir(dir, 24*time.Hour)
 
@@ -568,11 +568,11 @@ func TestRetention_SubDirs(t *testing.T) {
 
 	// 创建子目录下的旧日志
 	subDir := filepath.Join(dir, "error")
-	os.MkdirAll(subDir, 0755)
+	_ = os.MkdirAll(subDir, 0755)
 	oldPath := filepath.Join(subDir, "old.log")
-	os.WriteFile(oldPath, []byte("old"), 0644)
+	_ = os.WriteFile(oldPath, []byte("old"), 0644)
 	oldTime := time.Now().Add(-48 * time.Hour)
-	os.Chtimes(oldPath, oldTime, oldTime)
+	_ = os.Chtimes(oldPath, oldTime, oldTime)
 
 	cleanDir(dir, 24*time.Hour)
 
