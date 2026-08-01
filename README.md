@@ -29,6 +29,7 @@ Pi-Go Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 G
   - [扩展 TUI 能力](#扩展-tui-能力)
 - [API 参考](#api-参考)
 - [命令参考](#命令参考)
+- [贡献指南](#贡献指南)
 
 ---
 
@@ -834,3 +835,38 @@ func (ui *ChatUI) ExportConversation(path string) error
 | `make run` | 本地编译并运行 |
 | `make clean` | 清理构建产物 |
 | `make help` | 显示帮助 |
+
+---
+
+## 贡献指南
+
+欢迎 PR！最简流程：
+
+```bash
+# 1. fork + clone
+git clone https://github.com/YOUR_USERNAME/pi-go.git
+cd pi-go
+
+# 2. 创建分支
+git checkout -b feat/my-feature
+
+# 3. 开发 + 验证
+make lint          # 代码检查
+make test          # 全量测试
+
+# 4. 提交（conventional commits 格式）
+git add <files>
+git commit -m "feat(module): 描述你的改动"
+
+# 5. 推送并提 PR
+git push origin feat/my-feature
+# 在 GitHub 上打开 Pull Request → main 分支
+```
+
+**PR 自动检查：** CI 会跑 `golangci-lint` + `go test -race`（Go 1.21 / 1.23），全部通过才能合并。
+
+**Commit 格式：** `feat|fix|docs|chore(模块): 描述`
+
+**新增 Provider：** 参考 [如何新增 LLM Provider](#如何新增-llm-provider)，在 `ai/providers/` 下新建子包，`chat.go` 中注册。
+
+**新增 Tool：** 参考 [如何新增 Tool](#如何新增-tool)，在 `tool/builtin/` 下新建工具文件。
