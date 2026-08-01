@@ -1,93 +1,61 @@
 #!/bin/bash
-# install.sh — 从远程安装 Pi Agent，无需克隆仓库
-# 使用方式: curl -fsSL https://raw.githubusercontent.com/Effortful-lion/pi-go/main/install.sh | bash
+set -e
 
-set -euo pipefail
+# Pi-Go 一键安装脚本
+# curl -fsSL https://raw.githubusercontent.com/Effortful-lion/pi-go/main/install.sh | bash
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+REPO="Effortful-lion/pi-go"
+BINARY="pg"
+INSTALL_DIR="${GOPATH:-$HOME/go}/bin"
+VERSION="${PI_GO_VERSION:-latest}"
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# 检测 OS/Arch
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    arm64)   ARCH="arm64" ;;
+    *)       echo "不支持的架构: $ARCH"; exit 1 ;;
+esac
 
-echo ""
-echo "========================================="
-echo "   Pi Agent Installer — 远程安装"
-echo "========================================="
-echo ""
+echo "检测到: $OS/$ARCH"
 
-# 1. 检查 Go 版本
-log_info "检查 Go 环境..."
-if ! command -v go &>/dev/null; then
-    log_error "未找到 go 命令，请先安装 Go 1.21+: https://go.dev/dl/"
-    exit 1
-fi
-
-GO_VERSION=$(go version | awk '{print $3}')
-log_info "检测到 $GO_VERSION"
-
-# 2. 通过 go install 从远程下载并安装
-log_info "从远程安装 pg（github.com/Effortful-lion/pi-go）..."
-go install github.com/Effortful-lion/pi-go/cmd/pg@latest
-
-# 3. 检查 PATH 中是否包含 $GOPATH/bin
-GOPATH=$(go env GOPATH)
-GOPATH_BIN="${GOPATH}/bin"
-
-if ! echo "$PATH" | tr ':' '\n' | grep -Fxq "$GOPATH_BIN"; then
-    log_warn "\$GOPATH/bin 不在 PATH 中，正在配置..."
-
-    CONFIG_FILE=""
-    case "$SHELL" in
-        */zsh)  CONFIG_FILE="$HOME/.zshrc" ;;
-        */bash) CONFIG_FILE="$HOME/.bashrc" ;;
-        *)      CONFIG_FILE="$HOME/.profile" ;;
-    esac
-
-    if ! grep -q "GOPATH/bin" "$CONFIG_FILE" 2>/dev/null; then
-        echo "" >> "$CONFIG_FILE"
-        echo "# Pi Agent (pg) — added by install.sh" >> "$CONFIG_FILE"
-        echo "export PATH=\"\$PATH:$GOPATH_BIN\"" >> "$CONFIG_FILE"
-        log_info "已写入 $CONFIG_FILE"
-    else
-        log_info "$CONFIG_FILE 中已存在 GOPATH/bin 配置"
-    fi
-
-    PATH_ADDED=true
+# 构建下载 URL
+if [ "$VERSION" = "latest" ]; then
+    URL="https://github.com/$REPO/releases/latest/download/${BINARY}_${OS}_${ARCH}.tar.gz"
 else
-    log_info "\$GOPATH/bin 已在 PATH 中"
-    PATH_ADDED=false
+    URL="https://github.com/$REPO/releases/download/$VERSION/${BINARY}_${OS}_${ARCH}.tar.gz"
 fi
 
-# 4. 验证（用完整路径，避免 PATH 未生效的问题）
-log_info "验证安装..."
-PG_BIN="${GOPATH}/bin/pg"
-if [[ -x "$PG_BIN" ]]; then
-    "$PG_BIN" version
+echo "下载: $URL"
+
+# 创建临时目录
+TMP=$(mktemp -d)
+trap "rm -rf $TMP" EXIT
+
+# 下载并解压
+if command -v curl &>/dev/null; then
+    curl -fsSL "$URL" -o "$TMP/pg.tar.gz"
+elif command -v wget &>/dev/null; then
+    wget -q "$URL" -O "$TMP/pg.tar.gz"
 else
-    log_error "pg 二进制未找到: $PG_BIN"
-    exit 1
+    echo "需要 curl 或 wget"; exit 1
 fi
 
-echo ""
-echo "========================================="
-log_info "安装完成！"
-echo ""
+tar xzf "$TMP/pg.tar.gz" -C "$TMP"
 
-if [[ "${PATH_ADDED:-false}" == "true" ]]; then
-    echo -e "  ${YELLOW}!!! 请执行以下命令使 PATH 配置在当前会话生效:${NC}"
+# 安装
+mkdir -p "$INSTALL_DIR"
+cp "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
+chmod +x "$INSTALL_DIR/$BINARY"
+
+echo "安装完成: $INSTALL_DIR/$BINARY"
+echo "版本: $($INSTALL_DIR/$BINARY version 2>/dev/null || echo 'dev')"
+
+# PATH 提示
+if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
     echo ""
-    echo "      source $CONFIG_FILE"
-    echo ""
+    echo "请将以下路径加入 PATH:"
+    echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
-
-echo "  启动命令: pg"
-echo "  配置命令: pg config init"
-echo "  帮助命令: pg help"
-echo ""
-echo "  如需切换到 Anthropic: pg -provider anthropic"
-echo "  如需切换到 Google:    pg -provider google"
-echo "========================================="

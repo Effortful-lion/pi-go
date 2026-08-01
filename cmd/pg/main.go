@@ -30,11 +30,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/Effortful-lion/pi-go/lg"
 )
 
-const version = "1.0.0"
+// ldflags 注入变量（构建时设置）
+var (
+	version   = "dev"   // git tag，如 v1.0.0
+	commit    = "none"  // git rev-parse --short HEAD
+	buildDate = "none"  // 构建时间 UTC
+)
 
 const defaultSystemPrompt = `You are Pi-Go Agent, an AI coding assistant.
 You help with writing code, debugging, answering technical questions, and more.
@@ -94,7 +100,7 @@ func run() error {
 		runConfig(args[1:])
 		return nil
 	case "version", "-version", "--version":
-		fmt.Println("pg version", version)
+		printVersion()
 		return nil
 	case "help", "-help", "--help":
 		printHelp()
@@ -127,6 +133,13 @@ func runChatCmd(args []string) error {
 
 	cfg := loadConfig()
 	return runChat(cfg, &flags)
+}
+
+func printVersion() {
+	fmt.Printf("pg version %s\n", version)
+	fmt.Printf("  commit:    %s\n", commit)
+	fmt.Printf("  built:     %s\n", buildDate)
+	fmt.Printf("  go:        %s\n", runtime.Version())
 }
 
 func printHelp() {
