@@ -851,15 +851,28 @@ cd pi-go
 git checkout -b feat/my-feature
 
 # 3. 开发 + 验证
+# - 开发后本地运行进行功能点测试
+# - 然后测试
 make lint          # 代码检查
 make test          # 全量测试
 
 # 4. 提交（conventional commits 格式）
 git add <files>
-git commit -m "feat(module): 描述你的改动"
+git commit -m "feat(module): 描述你的改动" 
 
-# 5. 推送并提 PR
-git push origin feat/my-feature
+# 5. 推送
+第一次push:
+git push -u origin feat/my-feature
+之后直接push:
+git push
+
+# 6. 提 PR
+提PR前：先合并 main
+git fetch origin main
+git merge origin/main
+# 处理冲突后 commit & push
+git commit -m "merge main"
+git push
 # 在 GitHub 上打开 Pull Request → main 分支
 ```
 
