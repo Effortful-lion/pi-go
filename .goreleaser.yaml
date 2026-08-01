@@ -21,11 +21,11 @@ builds:
       - CGO_ENABLED=0
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - LICENSE
 
@@ -44,16 +44,8 @@ changelog:
 release:
   draft: false
   prerelease: auto
-  # Release 正文引用 version-log 文件（从 change-log 总结的版本发布说明）
+  # Release 正文 = 安装命令（详细发版说明见 version-log/ 仓库目录）
   header: |
-    {{ if .HasHeaderFile }}## 发版说明
-    {{ .HeaderContent }}
-
-    {{ end }}
-  header_file: version-log/{{ trimprefix .Version "v" }}.md
-  footer: |
-    ---
-
     ## 安装
 
     ```bash
@@ -63,3 +55,4 @@ release:
     # 或 go install
     go install github.com/Effortful-lion/pi-go/cmd/pg@{{ .Version }}
     ```
+  footer: ''
