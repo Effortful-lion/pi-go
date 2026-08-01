@@ -870,3 +870,30 @@ git push origin feat/my-feature
 **新增 Provider：** 参考 [如何新增 LLM Provider](#如何新增-llm-provider)，在 `ai/providers/` 下新建子包，`chat.go` 中注册。
 
 **新增 Tool：** 参考 [如何新增 Tool](#如何新增-tool)，在 `tool/builtin/` 下新建工具文件。
+
+### SOP 示范模块：`lg/` 日志库
+
+`lg/` 作为本项目的标准开发流程（SOP）示范模块，所有新模块或功能开发请参考此流程：
+
+```
+分支新建 → 本地开发 → 单包测试 → 全量测试 → lint 检查 → 提 PR
+```
+
+| 步骤 | 命令 | 说明 |
+|------|------|------|
+| 1. 分支 | `git checkout -b feat/lg-xxx` | 从 main 新建功能分支 |
+| 2. 开发 | 写代码 + 写测试（`lg/xxx_test.go`） | Go 标准 testing 包，不引入第三方框架 |
+| 3. 单包测试 | `go test -v -run TestXxx ./lg/` | 验证新功能的单元测试 |
+| 4. 全量测试 | `go test -race ./...` | 确保不破坏已有功能，竞态检测 |
+| 5. lint | `golangci-lint run ./lg/` | 静态检查：errcheck/unused/gosimple |
+| 6. 提交 | `git add lg/xxx.go lg/xxx_test.go` | 精确 stage 修改文件，不用 `git add -A` |
+| 7. commit | `git commit -m "feat(lg): 描述"` | 格式：`feat|fix|docs(chore)(包名): 简短描述` |
+| 8. 提 PR | `git push origin feat/lg-xxx` | 在 GitHub 打开 PR → main，CI 自动验证 |
+
+**SOP 要点：**
+
+- **测试先行**：每个公开函数至少一个测试用例（`TestXxx`），覆盖正常路径
+- **不追求覆盖率**：验证核心路径即可，不过度测试
+- **命名常量**：魔法数字、固定字符串定义为命名常量
+- **函数尺度**：<10 行且 1-2 处调用可直接内联，多处重复或明确语义才提取
+- **go vet 零报错**：`go vet ./lg/` 必须通过
