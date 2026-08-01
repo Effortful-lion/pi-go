@@ -1,6 +1,9 @@
 # 编译产物
 pg
 pi
+*.exe
+*.test
+dist/
 
 # 日志
 logs/
@@ -10,3 +13,10 @@ logs/
 .vscode/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# goreleaser
+dist/
