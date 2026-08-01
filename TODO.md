@@ -4,8 +4,7 @@
 
 | # | 文件 | 行号 | 内容 |
 |---|------|------|------|
-| 1 | `ai/providers/my-openai/provider.go` | 114 | `chat()` 方法中 `buildOpenAIRuquestBody` 未实现 |
-| 2 | `ai/providers/my-openai/provider.go` | 257 | 流式解析中工具调用的累积处理不完整 |
+| 1 | `ai/providers/my-openai/provider.go` | 257 | 流式解析中工具调用的累积处理不完整 |
 
 ## 近期开发
 
