@@ -914,14 +914,75 @@ dist/
 
 ## 贡献指南
 
-欢迎 PR！最简流程：
+欢迎 PR！请遵循以下 Git 规范。
+
+---
+
+### Git 规范
+
+#### 分支命名
+
+| 前缀 | 用途 | 示例 |
+|------|------|------|
+| `feat/` | 新功能 | `feat/replace-in-file-tool` |
+| `fix/` | Bug 修复 | `fix/stream-panic-on-nil` |
+| `docs/` | 文档变更 | `docs/api-reference-update` |
+| `chore/` | 构建/工具/杂项 | `chore/update-golangci-lint` |
+| `refactor/` | 重构（无功能变更） | `refactor/extract-common-types` |
+
+**规则：**
+- 分支名使用小写英文，单词用 `-` 连接
+- 从 `main` 分支拉出新分支，保持 `main` 干净可发布
+
+#### Commit Message 格式
+
+```
+{type}({scope}): <简短描述>
+```
+
+**type 取值：**
+
+| type | 说明 |
+|------|------|
+| `feat` | 新功能 |
+| `fix` | Bug 修复 |
+| `docs` | 文档变更 |
+| `chore` | 构建、工具、依赖、杂项 |
+| `refactor` | 重构（无功能变更） |
+| `test` | 测试相关 |
+| `style` | 代码格式（空格、缩进等，无逻辑变更） |
+
+**scope 取值：** 填写改动的包名，如 `ai`、`agent`、`tool`、`tui`、`cmd`、`lg`、`emoji`。跨包改动可用 `*` 或逗号分隔。
+
+**示例：**
+```
+feat(ai): 新增 Azure OpenAI provider
+fix(agent): 修复空 tool call 时的 nil panic
+docs(tui): 更新 TUI 交互快捷键文档
+chore(*): 升级 go.mod 依赖版本
+refactor(tool): 提取通用参数校验逻辑
+```
+
+**规则：**
+- 描述使用中文（与项目文档保持一致）
+- 一行一句，简洁明确，不超过 72 字符
+- 不要使用 `git add -A` / `git add .`，精确 stage 修改的文件
+- 每个知识点、完整功能点完成后提交，避免"大锅饭"式 commit
+
+#### 开发流程
+
+```
+fork & clone → 新建分支 → 本地开发 → 测试验证 → 提交 → 推送 → 提 PR
+```
 
 ```bash
 # 1. fork + clone
 git clone https://github.com/YOUR_USERNAME/pi-go.git
 cd pi-go
 
-# 2. 创建分支
+# 2. 从 main 创建功能分支
+git checkout main
+git pull upstream main          # 同步上游最新代码
 git checkout -b feat/my-feature
 
 # 3. 开发 + 验证
@@ -957,38 +1018,72 @@ git push
 ```
 
 **PR 自动检查：** CI 会跑 `golangci-lint` + `go test -race`（Go 版本由 `go.mod` 决定），全部通过才能合并。
+#### PR 规范
 
-**Commit 格式：** `feat|fix|docs|chore(模块): 描述`
+- **PR 标题**：与 commit message 格式一致：`feat(模块): 描述`
+- **PR 描述**：包含以下内容：
+  - 改动内容（做了什么）
+  - 改动原因（为什么做）
+  - 测试情况（如何验证）
+  - 关联 Issue/TODO（如有，引用编号如 `#4`）
+- **CI 检查**：PR 自动触发 `golangci-lint` + `go test -race`，全部通过才能合并
+- **Code Review**：至少一位 maintainer 审核通过后合并
+- **合并方式**：推荐 Squash and Merge，保持 `main` 历史干净
 
 **认领任务：** 查看 [TODO.md](TODO.md) 选择待办事项。认领后直接提 PR 并引用 TODO 编号（如 `#4`）。
+
+#### Git 操作约束
+
+| 禁止操作 | 说明 |
+|---------|------|
+| `git add -A` / `git add .` | 必须精确 stage 修改的文件，防止误提交 |
+| `git push --force` 到 `main` | 永远禁止 force push 到 main 分支 |
+| `git commit --no-verify` | 不要跳过 pre-commit hooks |
+| 未授权的提交 | 不要在未被要求时主动提交代码 |
+| 直接 push 到 `main` | 所有改动必须通过 PR 合并 |
+
+#### Change Log
+
+每次代码修改必须更新 `change-log/` 目录下的对应日期文件：
+
+- **文件命名**：`YYYY-M-DD.md`（如 `2026-8-02.md`，月不带前导零）
+- **内容格式**：
+  ```markdown
+  ## YYYY-MM-DD
+
+  ### 标题（简短描述本次修改主题）
+  - 修改内容1
+  - 修改内容2
+  ```
+- 同一天的多次修改合并到同一个日期文件下
+
+#### 设计文档
+
+较大功能在编码前需要写设计文档，归档到 `docs/` 目录下，命名示例：`docs/ai模块设计.md`。
+
+---
+
+### 快速上手
+
+**认领任务：** 查看 [TODO.md](TODO.md) 选择待办事项，认领后提 PR 并引用编号（如 `#4`）。
 
 **新增 Provider：** 参考 [如何新增 LLM Provider](#如何新增-llm-provider)，在 `ai/providers/` 下新建子包，`chat.go` 中注册。
 
 **新增 Tool：** 参考 [如何新增 Tool](#如何新增-tool)，在 `tool/builtin/` 下新建工具文件。
 
-### SOP 示范模块：`lg/` 日志库
+### SOP 示范：`lg/` 日志库
 
-`lg/` 作为本项目的标准开发流程（SOP）示范模块，所有新模块或功能开发请参考此流程：
-
-```
-分支新建 → 本地开发 → 单包测试 → 全量测试 → lint 检查 → 提 PR
-```
+`lg/` 作为标准开发流程示范模块：
 
 | 步骤 | 命令 | 说明 |
 |------|------|------|
 | 1. 分支 | `git checkout -b feat/lg-xxx` | 从 main 新建功能分支 |
-| 2. 开发 | 写代码 + 写测试（`lg/xxx_test.go`） | Go 标准 testing 包，不引入第三方框架 |
-| 3. 单包测试 | `go test -v -run TestXxx ./lg/` | 验证新功能的单元测试 |
-| 4. 全量测试 | `go test -race ./...` | 确保不破坏已有功能，竞态检测 |
-| 5. lint | `golangci-lint run ./lg/` | 静态检查：errcheck/unused/gosimple |
-| 6. 提交 | `git add lg/xxx.go lg/xxx_test.go` | 精确 stage 修改文件，不用 `git add -A` |
-| 7. commit | `git commit -m "feat(lg): 描述"` | 格式：`feat|fix|docs(chore)(包名): 简短描述` |
-| 8. 提 PR | `git push origin feat/lg-xxx` | 在 GitHub 打开 PR → main，CI 自动验证 |
+| 2. 开发 | 写代码 + 写测试 | Go 标准 testing 包 |
+| 3. 单包测试 | `go test -v -run TestXxx ./lg/` | 验证新功能 |
+| 4. 全量测试 | `go test -race ./...` | 确保不破坏已有功能 |
+| 5. lint | `golangci-lint run ./lg/` | 静态检查 |
+| 6. 提交 | `git add lg/xxx.go lg/xxx_test.go` | 精确 stage |
+| 7. commit | `git commit -m "feat(lg): 描述"` | 规范格式 |
+| 8. 提 PR | `git push origin feat/lg-xxx` | CI 自动验证 |
 
-**SOP 要点：**
-
-- **测试先行**：每个公开函数至少一个测试用例（`TestXxx`），覆盖正常路径
-- **不追求覆盖率**：验证核心路径即可，不过度测试
-- **命名常量**：魔法数字、固定字符串定义为命名常量
-- **函数尺度**：<10 行且 1-2 处调用可直接内联，多处重复或明确语义才提取
-- **go vet 零报错**：`go vet ./lg/` 必须通过
+**SOP 要点：** 测试覆盖核心路径、命名常量化、go vet 零报错、函数不过度抽象。
