@@ -254,7 +254,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 			curTextIdx = -1
 		}
 
-		// TODO 处理工具调用 这块有点...
+		// TODO 处理工具调用 这块有点不明白
 		for _, tc := range delta.ToolCalls {
 			acc, ok := toolCalls[tc.Index]
 			if !ok {

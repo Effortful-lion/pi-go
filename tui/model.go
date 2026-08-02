@@ -26,9 +26,10 @@ type ChatModel struct {
 	output strings.Builder
 
 	// 流式渲染状态
-	lineBuf   strings.Builder // 行缓冲
-	firstLine bool            // 是否在等待首行（用于加 bot 前缀）
-	stream    agent.Stream    // 当前正在消费的 Agent 流（nil 表示未在运行）
+	lineBuf   strings.Builder       // 行缓冲
+	firstLine bool                  // 是否在等待首行（用于加 bot 前缀）
+	stream    agent.Stream          // 当前正在消费的 Agent 流（nil 表示未在运行）
+	mdLine    *MarkdownLineRenderer // 有状态逐行 Markdown 渲染器
 
 	// 历史记录
 	history    []string // 提交过的消息
@@ -73,6 +74,7 @@ func NewChatModel(ag *agent.Agent, resolver *emoji.Resolver, strategy InputStrat
 		ctx:           context.Background(),
 		histIdx:       -1,
 		firstLine:     true,
+		mdLine:        NewMarkdownLineRenderer(),
 	}
 }
 
@@ -211,6 +213,7 @@ func (m *ChatModel) handleSubmit(text string) (tea.Model, tea.Cmd) {
 	m.running = true
 	m.firstLine = true
 	m.lineBuf.Reset()
+	m.mdLine.Reset()
 
 	m.stream = m.agent.Run(m.ctx, text)
 	return m, waitForStream(m.stream)

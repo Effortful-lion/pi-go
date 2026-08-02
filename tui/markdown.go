@@ -211,10 +211,72 @@ func isTableSeparator(line string) bool {
 	return strings.HasPrefix(s, "|") && strings.Contains(s, "---")
 }
 
-// MarkdownLine 将一行 Markdown 渲染为 ANSI（流式版本，不保存状态）。
-// 用于逐行实时渲染场景。
+// MarkdownLineRenderer 是有状态的逐行 Markdown 渲染器。
+// 用于流式实时渲染场景，能正确跟踪跨行的 ``` 代码块状态。
+// 零值可用，通过 NewMarkdownLineRenderer() 创建。
+type MarkdownLineRenderer struct {
+	inCodeBlock bool
+	codeLang    string
+	codeLines   []string
+}
+
+// NewMarkdownLineRenderer 创建新的逐行 Markdown 渲染器。
+func NewMarkdownLineRenderer() *MarkdownLineRenderer {
+	return &MarkdownLineRenderer{}
+}
+
+// RenderLine 渲染一行 Markdown。
+// 当检测到代码块边界 ``` 时切换状态；
+// 处于代码块内部时，行不经过 Markdown 块级渲染，直接保留原样；
+// 代码块结束时，一次性用 Highlight 进行语法高亮。
+func (r *MarkdownLineRenderer) RenderLine(line string) string {
+	if m := codeBlockRe.FindStringSubmatch(line); m != nil {
+		if r.inCodeBlock {
+			// 代码块结束：flush 累积的代码行并高亮
+			rendered := r.flushCodeBlock()
+			r.inCodeBlock = false
+			return rendered
+		}
+		// 代码块开始
+		r.inCodeBlock = true
+		r.codeLang = m[1]
+		r.codeLines = nil
+		return Dim(line)
+	}
+
+	if r.inCodeBlock {
+		r.codeLines = append(r.codeLines, line)
+		return line
+	}
+
+	return renderInline(line)
+}
+
+// flushCodeBlock 将累积的代码行用 Highlight 渲染并返回。
+func (r *MarkdownLineRenderer) flushCodeBlock() string {
+	if len(r.codeLines) == 0 {
+		return ""
+	}
+	code := strings.Join(r.codeLines, "\n")
+	if r.codeLang != "" {
+		code = Highlight(code, r.codeLang)
+	}
+	r.codeLines = nil
+	r.codeLang = ""
+	return code
+}
+
+// Reset 重置渲染器状态（用于新的对话轮次）。
+func (r *MarkdownLineRenderer) Reset() {
+	r.inCodeBlock = false
+	r.codeLang = ""
+	r.codeLines = nil
+}
+
+// MarkdownLine 将一行 Markdown 渲染为 ANSI（无状态版本，向后兼容）。
+// 已废弃：新代码应使用 MarkdownLineRenderer.RenderLine() 以获得正确的代码块状态跟踪。
+// 用于不需要状态跟踪的逐行渲染场景。
 func MarkdownLine(line string) string {
-	// 检测代码块边界
 	if codeBlockRe.MatchString(line) {
 		return Dim(line)
 	}

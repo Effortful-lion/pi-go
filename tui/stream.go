@@ -98,7 +98,7 @@ func (m *ChatModel) flushLine(botPrefix string) {
 	}
 	line := strings.TrimSuffix(m.lineBuf.String(), "\n")
 	m.lineBuf.Reset()
-	rendered := MarkdownLine(line)
+	rendered := m.mdLine.RenderLine(line)
 	if m.firstLine {
 		m.output.WriteString("\n") // 回复前空行
 		fmt.Fprintf(&m.output, "%s\n", Green(botPrefix+" ")+rendered)
@@ -115,7 +115,7 @@ func (m *ChatModel) flushInline(botPrefix string) {
 	}
 	line := strings.TrimSuffix(m.lineBuf.String(), "\n")
 	m.lineBuf.Reset()
-	rendered := MarkdownLine(line)
+	rendered := m.mdLine.RenderLine(line)
 	if m.firstLine {
 		m.output.WriteString("\n")
 		fmt.Fprintf(&m.output, "%s\n", Green(botPrefix+" ")+rendered)
