@@ -29,6 +29,7 @@ Pi-Go Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 G
   - [扩展 TUI 能力](#扩展-tui-能力)
 - [API 参考](#api-参考)
 - [命令参考](#命令参考)
+- [发版 SOP](#发版-sop)
 - [TODO](#todo)
 - [贡献指南](#贡献指南)
 
@@ -853,6 +854,61 @@ func RenderMarkdown(text string) string
 | `make run` | 本地编译并运行 |
 | `make clean` | 清理构建产物 |
 | `make help` | 显示帮助 |
+
+---
+
+## 发版 SOP
+
+### 方式 A：CI 自动化发版（推荐）
+
+本地只需 push 代码 + 打 tag + push tag，CI 自动完成编译、打包、发布。
+
+```bash
+# 1. 确定版本号（semver）
+make version                           # 查看最新 tag: v1.0.2
+# 按变更类型 bump：fix → patch, feat → minor, breaking → major
+
+# 2. 打 tag 并推送
+git tag v1.0.3
+git push origin main --tags            # 推送代码 + tag
+
+# 3. 等待 CI 完成（无需本地操作）
+```
+
+CI 自动执行流程：
+
+```
+git push --tags
+  ├── lint (golangci-lint)
+  ├── test (go vet + go test -race)
+  └── goreleaser
+      ├── 交叉编译 darwin/arm64 + windows/amd64
+      ├── 打包 tar.gz/zip + checksums.txt
+      └── 创建 GitHub Release
+```
+
+### 方式 B：手动打包（CI 不可用时兜底）
+
+当 GitHub Actions 不可用或需要本地生成构建产物时使用。
+
+```bash
+# 直接指定版本号
+./pack.sh v1.0.3
+
+# 或不指定，自动从 git tag 获取
+./pack.sh
+```
+
+产物在 `dist/` 目录下：
+
+```
+dist/
+├── pg_v1.0.3_darwin_arm64.tar.gz
+├── pg_v1.0.3_windows_amd64.zip
+└── checksums.txt
+```
+
+> `pack.sh` 只负责编译+打包，不会自动上传到 GitHub Release，上传需手动操作。
 
 ---
 
