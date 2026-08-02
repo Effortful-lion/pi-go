@@ -120,10 +120,70 @@ func (m *model) chat(ctx context.Context, ctx2 ai.Context, out chan<- ai.Event) 
 	m.parseSSE(resp.Body, out)
 }
 
+// --- Gemini API 请求类型 ---
+
+// chatPart Gemini 消息中的 part（文本/函数调用/函数响应）。
+type chatPart struct {
+	Text             string              `json:"text,omitempty"`
+	FunctionCall     *funcCall           `json:"functionCall,omitempty"`
+	FunctionResponse *funcResponse       `json:"functionResponse,omitempty"`
+}
+
+// funcCall 函数调用。
+type funcCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args,omitempty"`
+}
+
+// funcResponse 函数调用响应（tool result）。
+type funcResponse struct {
+	Name     string `json:"name"`
+	Response struct {
+		Content string `json:"content"`
+	} `json:"response"`
+}
+
+// chatContent Gemini 消息内容（role + parts）。
+type chatContent struct {
+	Role  string     `json:"role"`
+	Parts []chatPart `json:"parts"`
+}
+
+// systemInstruction Gemini 系统指令。
+type systemInstruction struct {
+	Parts []chatPart `json:"parts"`
+}
+
+// toolDef Gemini 工具定义。
+type toolDef struct {
+	FunctionDeclarations []funcDecl `json:"functionDeclarations"`
+}
+
+// funcDecl Gemini 函数声明（工具定义中的单个函数）。
+type funcDecl struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// generationConfig Gemini 生成配置。
+type generationConfig struct {
+	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
+	Temperature     float64 `json:"temperature,omitempty"`
+}
+
+// chatRequest Gemini API 请求体。
+type chatRequest struct {
+	SystemInstruction *systemInstruction `json:"systemInstruction,omitempty"`
+	Contents          []chatContent      `json:"contents"`
+	Tools             []toolDef          `json:"tools,omitempty"`
+	GenerationConfig  *generationConfig  `json:"generationConfig,omitempty"`
+}
+
 // buildRequest 构造 Gemini API 请求体。
 // Gemini 的 system prompt 通过 systemInstruction 顶层字段传递。
-func (m *model) buildRequest(ctx ai.Context) map[string]any {
-	req := map[string]any{}
+func (m *model) buildRequest(ctx ai.Context) chatRequest {
+	req := chatRequest{}
 
 	// 收集 system prompt
 	collectSystem := func() string {
@@ -142,90 +202,83 @@ func (m *model) buildRequest(ctx ai.Context) map[string]any {
 		return sb.String()
 	}
 	if sys := collectSystem(); sys != "" {
-		req["systemInstruction"] = map[string]any{
-			"parts": []map[string]any{{"text": sys}},
+		req.SystemInstruction = &systemInstruction{
+			Parts: []chatPart{{Text: sys}},
 		}
 	}
 
 	// contents: Gemini 的 messages
-	contents := make([]map[string]any, 0)
+	contents := make([]chatContent, 0)
 	for _, msg := range ctx.Messages {
 		switch msg.Role {
 		case ai.RoleSystem:
 			continue
 		case ai.RoleUser:
-			parts := []map[string]any{{"text": msg.Content}}
-			contents = append(contents, map[string]any{
-				"role":  "user",
-				"parts": parts,
+			contents = append(contents, chatContent{
+				Role:  "user",
+				Parts: []chatPart{{Text: msg.Content}},
 			})
 		case ai.RoleAssistant:
-			role := "model" // Gemini 叫 model 而不是 assistant
-			parts := []map[string]any{}
+			parts := make([]chatPart, 0)
 			if msg.Content != "" {
-				parts = append(parts, map[string]any{"text": msg.Content})
+				parts = append(parts, chatPart{Text: msg.Content})
 			}
 			for _, b := range msg.Blocks {
 				if b.Type == ai.BlockToolCall && b.ToolCall != nil {
 					var args map[string]any
 					_ = json.Unmarshal([]byte(b.ToolCall.Arguments), &args)
-					parts = append(parts, map[string]any{
-						"functionCall": map[string]any{
-							"name": b.ToolCall.Name,
-							"args": args,
+					parts = append(parts, chatPart{
+						FunctionCall: &funcCall{
+							Name: b.ToolCall.Name,
+							Args: args,
 						},
 					})
 				}
 			}
-			contents = append(contents, map[string]any{
-				"role":  role,
-				"parts": parts,
+			contents = append(contents, chatContent{
+				Role:  "model", // Gemini 叫 model 而不是 assistant
+				Parts: parts,
 			})
 		case ai.RoleTool:
-			// Gemini tool result 格式
-			parts := []map[string]any{
-				{
-					"functionResponse": map[string]any{
-						"name": msg.ToolName,
-						"response": map[string]any{
-							"content": msg.Content,
+			contents = append(contents, chatContent{
+				Role: "user",
+				Parts: []chatPart{
+					{
+						FunctionResponse: &funcResponse{
+							Name: msg.ToolName,
+							Response: struct {
+								Content string `json:"content"`
+							}{Content: msg.Content},
 						},
 					},
 				},
-			}
-			contents = append(contents, map[string]any{
-				"role":  "user",
-				"parts": parts,
 			})
 		}
 	}
-	req["contents"] = contents
+	req.Contents = contents
 
 	// tools → functionDeclarations
 	if len(ctx.Tools) > 0 {
-		funcDecls := make([]map[string]any, len(ctx.Tools))
+		funcDecls := make([]funcDecl, len(ctx.Tools))
 		for i, t := range ctx.Tools {
-			funcDecls[i] = map[string]any{
-				"name":        t.Name,
-				"description": t.Description,
-				"parameters":  t.Parameters,
+			funcDecls[i] = funcDecl{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
 			}
 		}
-		req["tools"] = []map[string]any{
-			{"functionDeclarations": funcDecls},
-		}
+		req.Tools = []toolDef{{FunctionDeclarations: funcDecls}}
 	}
 
-	if ctx.MaxTokens > 0 {
-		req["generationConfig"] = map[string]any{
-			"maxOutputTokens": ctx.MaxTokens,
+	if ctx.MaxTokens > 0 || ctx.Temperature > 0 {
+		cfg := &generationConfig{}
+		if ctx.MaxTokens > 0 {
+			cfg.MaxOutputTokens = ctx.MaxTokens
 		}
-	}
-	if ctx.Temperature > 0 {
-		if req["generationConfig"] == nil {
-			req["generationConfig"] = map[string]any{}
+		if ctx.Temperature > 0 {
+			cfg.Temperature = ctx.Temperature
 		}
-		req["generationConfig"].(map[string]any)["temperature"] = ctx.Temperature
+		req.GenerationConfig = cfg
 	}
 
 	return req
@@ -256,7 +309,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 		}
 		data = strings.TrimSpace(data)
 
-		var chunk geminiChunk
+		var chunk messageChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
@@ -357,31 +410,18 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	out <- ai.Event{Type: ai.EventDone}
 }
 
-// geminiChunk Gemini SSE 单个块。
-type geminiChunk struct {
+// --- Gemini SSE 响应类型 ---
+
+// messageChunk Gemini SSE 单个块。
+type messageChunk struct {
 	Candidates []struct {
-		Content      *geminiContent `json:"content"`
-		FinishReason string         `json:"finishReason"`
-		Index        int            `json:"index"`
+		Content      *chatContent `json:"content"`
+		FinishReason string       `json:"finishReason"`
+		Index        int          `json:"index"`
 	} `json:"candidates"`
 	UsageMetadata *struct {
 		PromptTokenCount     int `json:"promptTokenCount"`
 		CandidatesTokenCount int `json:"candidatesTokenCount"`
 		TotalTokenCount      int `json:"totalTokenCount"`
 	} `json:"usageMetadata"`
-}
-
-type geminiContent struct {
-	Role  string       `json:"role"`
-	Parts []geminiPart `json:"parts"`
-}
-
-type geminiPart struct {
-	Text         string          `json:"text,omitempty"`
-	FunctionCall *geminiFuncCall `json:"functionCall,omitempty"`
-}
-
-type geminiFuncCall struct {
-	Name string         `json:"name"`
-	Args map[string]any `json:"args,omitempty"`
 }

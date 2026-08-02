@@ -126,17 +126,91 @@ func (m *model) chat(ctx context.Context, ctx2 ai.Context, out chan<- ai.Event) 
 	m.parseSSE(resp.Body, out)
 }
 
+// --- Anthropic API 请求类型 ---
+
+// chatMessage Anthropic 消息格式。
+type chatMessage struct {
+	Role    string         `json:"role"`
+	Content []contentBlock `json:"content"`
+}
+
+// contentBlock Anthropic 内容块（text/tool_use/tool_result）。
+type contentBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+}
+
+// toolDef Anthropic 工具定义。
+type toolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// chatRequest Anthropic Messages API 请求体。
+type chatRequest struct {
+	Model       string         `json:"model"`
+	MaxTokens   int            `json:"max_tokens"`
+	Stream      bool           `json:"stream"`
+	System      string         `json:"system,omitempty"`
+	Messages    []chatMessage  `json:"messages"`
+	Tools       []toolDef      `json:"tools,omitempty"`
+	Temperature float64        `json:"temperature,omitempty"`
+}
+
+// --- Anthropic SSE 响应类型 ---
+
+// sseContentBlockStart content_block_start 事件。
+type sseContentBlockStart struct {
+	Index        int `json:"index"`
+	ContentBlock struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"content_block"`
+}
+
+// sseContentBlockDelta content_block_delta 事件。
+type sseContentBlockDelta struct {
+	Index int `json:"index"`
+	Delta struct {
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		PartialJSON string `json:"partial_json"`
+	} `json:"delta"`
+}
+
+// sseContentBlockStop content_block_stop 事件。
+type sseContentBlockStop struct {
+	Index int `json:"index"`
+}
+
+// sseMessageDelta message_delta 事件。
+type sseMessageDelta struct {
+	Delta struct {
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
 // buildRequest 构造 Anthropic Messages API 请求体。
 // 关键差异：system prompt 通过顶层 system 字段传递，不作为 message。
-func (m *model) buildRequest(ctx ai.Context) map[string]any {
-	req := map[string]any{
-		"model":      m.info.ID,
-		"max_tokens": 4096,
-		"stream":     true,
+func (m *model) buildRequest(ctx ai.Context) chatRequest {
+	maxTokens := 4096
+	if ctx.MaxTokens > 0 {
+		maxTokens = ctx.MaxTokens
 	}
 
-	if ctx.MaxTokens > 0 {
-		req["max_tokens"] = ctx.MaxTokens
+	req := chatRequest{
+		Model:     m.info.ID,
+		MaxTokens: maxTokens,
+		Stream:    true,
 	}
 
 	// system prompt 作为顶层字段
@@ -156,72 +230,68 @@ func (m *model) buildRequest(ctx ai.Context) map[string]any {
 		return sb.String()
 	}
 	if sys := collectSystem(); sys != "" {
-		req["system"] = sys
+		req.System = sys
 	}
 
 	// messages: Anthropic 只支持 user/assistant 角色
-	messages := make([]map[string]any, 0)
+	msgs := make([]chatMessage, 0)
 	for _, msg := range ctx.Messages {
 		switch msg.Role {
 		case ai.RoleSystem:
 			continue // 已被 system 字段处理
 		case ai.RoleUser:
-			messages = append(messages, map[string]any{
-				"role":    "user",
-				"content": msg.Content,
+			msgs = append(msgs, chatMessage{
+				Role: "user",
+				Content: []contentBlock{
+					{Type: "text", Text: msg.Content},
+				},
 			})
 		case ai.RoleAssistant:
-			content := []map[string]any{}
+			blocks := make([]contentBlock, 0)
 			if msg.Content != "" {
-				content = append(content, map[string]any{
-					"type": "text",
-					"text": msg.Content,
-				})
+				blocks = append(blocks, contentBlock{Type: "text", Text: msg.Content})
 			}
 			for _, b := range msg.Blocks {
 				if b.Type == ai.BlockToolCall && b.ToolCall != nil {
-					content = append(content, map[string]any{
-						"type":  "tool_use",
-						"id":    b.ToolCall.ID,
-						"name":  b.ToolCall.Name,
-						"input": json.RawMessage(b.ToolCall.Arguments),
+					blocks = append(blocks, contentBlock{
+						Type:  "tool_use",
+						ID:    b.ToolCall.ID,
+						Name:  b.ToolCall.Name,
+						Input: json.RawMessage(b.ToolCall.Arguments),
 					})
 				}
 			}
-			messages = append(messages, map[string]any{
-				"role":    "assistant",
-				"content": content,
-			})
+			msgs = append(msgs, chatMessage{Role: "assistant", Content: blocks})
 		case ai.RoleTool:
-			messages = append(messages, map[string]any{
-				"role": "user",
-				"content": []map[string]any{
+			msgs = append(msgs, chatMessage{
+				Role: "user",
+				Content: []contentBlock{
 					{
-						"type":        "tool_result",
-						"tool_use_id": msg.ToolCallID,
-						"content":     msg.Content,
+						Type:      "tool_result",
+						ToolUseID: msg.ToolCallID,
+						Text:      msg.Content,
 					},
 				},
 			})
 		}
 	}
-	req["messages"] = messages
+	req.Messages = msgs
 
 	// tools 格式
 	if len(ctx.Tools) > 0 {
-		tools := make([]map[string]any, len(ctx.Tools))
+		tools := make([]toolDef, len(ctx.Tools))
 		for i, t := range ctx.Tools {
-			tools[i] = map[string]any{
-				"name":         t.Name,
-				"description":  t.Description,
-				"input_schema": t.Parameters,
+			tools[i] = toolDef{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: t.Parameters,
 			}
 		}
-		req["tools"] = tools
+		req.Tools = tools
 	}
 
 	if ctx.Temperature > 0 {
-		req["temperature"] = ctx.Temperature
+		req.Temperature = ctx.Temperature
 	}
 
 	return req
@@ -267,14 +337,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 		case "message_start":
 			// 提取 usage（在 message.usage 中）
 		case "content_block_start":
-			var cb struct {
-				Index        int `json:"index"`
-				ContentBlock struct {
-					Type string `json:"type"`
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				} `json:"content_block"`
-			}
+			var cb sseContentBlockStart
 			if err := json.Unmarshal([]byte(data), &cb); err != nil {
 				continue
 			}
@@ -293,14 +356,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				}
 			}
 		case "content_block_delta":
-			var cb struct {
-				Index int `json:"index"`
-				Delta struct {
-					Type        string `json:"type"`
-					Text        string `json:"text"`
-					PartialJSON string `json:"partial_json"`
-				} `json:"delta"`
-			}
+			var cb sseContentBlockDelta
 			if err := json.Unmarshal([]byte(data), &cb); err != nil {
 				continue
 			}
@@ -318,9 +374,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				}
 			}
 		case "content_block_stop":
-			var cb struct {
-				Index int `json:"index"`
-			}
+			var cb sseContentBlockStop
 			if err := json.Unmarshal([]byte(data), &cb); err != nil {
 				continue
 			}
@@ -338,14 +392,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				textStarted = false
 			}
 		case "message_delta":
-			var md struct {
-				Delta struct {
-					StopReason string `json:"stop_reason"`
-				} `json:"delta"`
-				Usage struct {
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
-			}
+			var md sseMessageDelta
 			if err := json.Unmarshal([]byte(data), &md); err != nil {
 				continue
 			}

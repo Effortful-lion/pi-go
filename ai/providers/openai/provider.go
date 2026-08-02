@@ -132,86 +132,129 @@ func (m *model) chat(ctx context.Context, context ai.Context, out chan<- ai.Even
 	m.parseSSE(resp.Body, out)
 }
 
+// --- OpenAI API 请求类型 ---
+
+// chatMessage OpenAI 消息格式。
+type chatMessage struct {
+	Role       string          `json:"role"`
+	Content    string          `json:"content,omitempty"`
+	ToolCalls  []toolCallMsg   `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+}
+
+// toolCallMsg 工具调用消息（assistant 消息中的 tool_calls 数组元素）。
+type toolCallMsg struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function toolCallFunc `json:"function"`
+}
+
+// toolCallFunc 工具调用中的 function 字段。
+type toolCallFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// toolDef OpenAI 工具定义（tools 数组元素）。
+type toolDef struct {
+	Type     string       `json:"type"`
+	Function toolDefFunc  `json:"function"`
+}
+
+// toolDefFunc 工具定义中的 function 字段。
+type toolDefFunc struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// chatRequest OpenAI Chat Completions 请求体。
+type chatRequest struct {
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Stream      bool          `json:"stream"`
+	Tools       []toolDef     `json:"tools,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Temperature float64       `json:"temperature,omitempty"`
+}
+
 // buildRequest 构造 OpenAI Chat Completions 请求体。
-func (m *model) buildRequest(ctx ai.Context) map[string]any {
-	messages := make([]map[string]any, 0)
+func (m *model) buildRequest(ctx ai.Context) chatRequest {
+	msgs := make([]chatMessage, 0)
 
 	if ctx.SystemPrompt != "" {
-		messages = append(messages, map[string]any{
-			"role":    "system",
-			"content": ctx.SystemPrompt,
+		msgs = append(msgs, chatMessage{
+			Role:    "system",
+			Content: ctx.SystemPrompt,
 		})
 	}
 
 	for _, msg := range ctx.Messages {
 		switch msg.Role {
 		case ai.RoleUser, ai.RoleSystem:
-			messages = append(messages, map[string]any{
-				"role":    string(msg.Role),
-				"content": msg.Content,
+			msgs = append(msgs, chatMessage{
+				Role:    string(msg.Role),
+				Content: msg.Content,
 			})
 		case ai.RoleAssistant:
-			am := map[string]any{"role": "assistant"}
-			if msg.Content != "" {
-				am["content"] = msg.Content
-			}
+			cm := chatMessage{Role: "assistant", Content: msg.Content}
 			if len(msg.Blocks) > 0 {
-				toolCalls := buildToolCalls(msg.Blocks)
-				if len(toolCalls) > 0 {
-					am["tool_calls"] = toolCalls
+				tcs := buildToolCallMsgs(msg.Blocks)
+				if len(tcs) > 0 {
+					cm.ToolCalls = tcs
 				}
 			}
-			messages = append(messages, am)
+			msgs = append(msgs, cm)
 		case ai.RoleTool:
-			messages = append(messages, map[string]any{
-				"role":         "tool",
-				"tool_call_id": msg.ToolCallID,
-				"content":      msg.Content,
+			msgs = append(msgs, chatMessage{
+				Role:       "tool",
+				ToolCallID: msg.ToolCallID,
+				Content:    msg.Content,
 			})
 		}
 	}
 
-	req := map[string]any{
-		"model":    m.info.ID,
-		"messages": messages,
-		"stream":   true,
+	req := chatRequest{
+		Model:    m.info.ID,
+		Messages: msgs,
+		Stream:   true,
 	}
 
 	if len(ctx.Tools) > 0 {
-		tools := make([]map[string]any, len(ctx.Tools))
+		tools := make([]toolDef, len(ctx.Tools))
 		for i, t := range ctx.Tools {
-			tools[i] = map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name":        t.Name,
-					"description": t.Description,
-					"parameters":  t.Parameters,
+			tools[i] = toolDef{
+				Type: "function",
+				Function: toolDefFunc{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.Parameters,
 				},
 			}
 		}
-		req["tools"] = tools
+		req.Tools = tools
 	}
 	if ctx.MaxTokens > 0 {
-		req["max_tokens"] = ctx.MaxTokens
+		req.MaxTokens = ctx.MaxTokens
 	}
 	if ctx.Temperature > 0 {
-		req["temperature"] = ctx.Temperature
+		req.Temperature = ctx.Temperature
 	}
 
 	return req
 }
 
-// buildToolCalls 将 ai.ContentBlock 转换为 OpenAI tool_calls JSON 格式。
-func buildToolCalls(blocks []ai.ContentBlock) []map[string]any {
-	var res []map[string]any
+// buildToolCallMsgs 将 ai.ContentBlock 转换为 OpenAI tool_calls 格式。
+func buildToolCallMsgs(blocks []ai.ContentBlock) []toolCallMsg {
+	var res []toolCallMsg
 	for _, b := range blocks {
 		if b.Type == ai.BlockToolCall && b.ToolCall != nil {
-			res = append(res, map[string]any{
-				"id":   b.ToolCall.ID,
-				"type": "function",
-				"function": map[string]any{
-					"name":      b.ToolCall.Name,
-					"arguments": b.ToolCall.Arguments,
+			res = append(res, toolCallMsg{
+				ID:   b.ToolCall.ID,
+				Type: "function",
+				Function: toolCallFunc{
+					Name:      b.ToolCall.Name,
+					Arguments: b.ToolCall.Arguments,
 				},
 			})
 		}
@@ -227,7 +270,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	// 流状态追踪
 	var textSeq int                         // 文本块序号计数器
 	var curTextIdx = -1                     // 当前正在进行中的文本块序号，-1 表示无
-	toolCalls := make(map[int]*toolCallAcc) // key: index，跨 chunk 累积工具调用
+	toolCalls := make(map[int]*toolCallAccumulator) // key: index，跨 chunk 累积工具调用
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -242,7 +285,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 			break
 		}
 
-		var chunk oaiChunk
+		var chunk messageChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
@@ -270,7 +313,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 		for _, tc := range delta.ToolCalls {
 			acc, ok := toolCalls[tc.Index]
 			if !ok {
-				acc = &toolCallAcc{tc: &ai.ToolCall{ID: tc.ID, Name: tc.Function.Name}}
+				acc = &toolCallAccumulator{tc: &ai.ToolCall{ID: tc.ID, Name: tc.Function.Name}}
 				toolCalls[tc.Index] = acc
 				out <- ai.Event{Type: ai.EventToolCallStart, TC: acc.tc, Index: tc.Index}
 			}
@@ -304,17 +347,17 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	out <- ai.Event{Type: ai.EventDone}
 }
 
-// toolCallAcc 跨 chunk 累积工具调用的中间状态。
-type toolCallAcc struct {
+// toolCallAccumulator 跨 chunk 累积工具调用的中间状态。
+type toolCallAccumulator struct {
 	tc *ai.ToolCall
 }
 
-// oaiChunk OpenAI SSE 单个 chunk 的 JSON 结构。
-type oaiChunk struct {
+// messageChunk OpenAI SSE 单个 chunk 的 JSON 结构。
+type messageChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string             `json:"content"`
-			ToolCalls []oaiToolCallChunk `json:"tool_calls"`
+			Content   string          `json:"content"`
+			ToolCalls []toolCallChunk `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
@@ -330,8 +373,8 @@ func decodeArg(raw json.RawMessage) string {
 	return s
 }
 
-// oaiToolCallChunk 工具调用 delta chunk。
-type oaiToolCallChunk struct {
+// toolCallChunk 工具调用 delta chunk。
+type toolCallChunk struct {
 	Index    int    `json:"index"`
 	ID       string `json:"id"`
 	Function struct {
