@@ -20,3 +20,6 @@ Thumbs.db
 
 # goreleaser
 dist/
+
+# ai-coding规范
+AGRENTS.md
