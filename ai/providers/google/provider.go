@@ -283,9 +283,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 					// 如果之前有 tool_use 在打开中，先关闭
 					if funcOpen {
 						out <- ai.Event{
-							Type: ai.EventToolCallEnd,
+							Type:  ai.EventToolCallEnd,
 							Index: funcIdx,
-							TC:   &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
+							TC:    &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
 						}
 						funcOpen = false
 						funcArgs.Reset()
@@ -308,9 +308,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				if !funcOpen || fc.Name != curFuncNm {
 					if funcOpen {
 						out <- ai.Event{
-							Type: ai.EventToolCallEnd,
+							Type:  ai.EventToolCallEnd,
 							Index: funcIdx,
-							TC:   &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
+							TC:    &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
 						}
 						funcArgs.Reset()
 					}
@@ -319,9 +319,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 					curFuncNm = fc.Name
 					curFuncID = fc.Name + "_" + fmt.Sprint(funcIdx)
 					out <- ai.Event{
-						Type: ai.EventToolCallStart,
+						Type:  ai.EventToolCallStart,
 						Index: funcIdx,
-						TC:   &ai.ToolCall{ID: curFuncID, Name: curFuncNm},
+						TC:    &ai.ToolCall{ID: curFuncID, Name: curFuncNm},
 					}
 				}
 				if fc.Args != nil {
@@ -329,13 +329,18 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 					funcArgs = strings.Builder{}
 					funcArgs.Write(argsJSON)
 					out <- ai.Event{
-						Type: ai.EventToolCallDelta,
+						Type:  ai.EventToolCallDelta,
 						Index: funcIdx,
-						TC:   &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
+						TC:    &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
 					}
 				}
 			}
 		}
+	}
+
+	if scanner.Err() != nil {
+		logger.Error("I/O 错误或缓冲区溢出", lg.Fields{"err": scanner.Err()})
+		out <- ai.Event{Type: ai.EventError, Err: scanner.Err()}
 	}
 
 	// 关闭任何未关闭的块
@@ -344,9 +349,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	}
 	if funcOpen {
 		out <- ai.Event{
-			Type: ai.EventToolCallEnd,
+			Type:  ai.EventToolCallEnd,
 			Index: funcIdx,
-			TC:   &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
+			TC:    &ai.ToolCall{ID: curFuncID, Name: curFuncNm, Arguments: funcArgs.String()},
 		}
 	}
 	out <- ai.Event{Type: ai.EventDone}
@@ -367,8 +372,8 @@ type geminiChunk struct {
 }
 
 type geminiContent struct {
-	Role  string        `json:"role"`
-	Parts []geminiPart  `json:"parts"`
+	Role  string       `json:"role"`
+	Parts []geminiPart `json:"parts"`
 }
 
 type geminiPart struct {

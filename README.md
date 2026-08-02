@@ -6,7 +6,7 @@ Pi-Go Agent 是一个**交互式 AI 编程助手 CLI**，同时也是可嵌入 G
 - 多 LLM 提供商统一接口（OpenAI / Anthropic Claude / Google Gemini）
 - Agent 运行时：LLM ↔ 工具调用自动循环
 - 内置工具：文件读写、目录列表、文件搜索、Shell 执行
-- 终端 UI：多行输入、历史记录、语法高亮、Markdown 渲染、路径补全
+- 终端 UI：多行输入（Textarea）、Esc 提交、Bracketed Paste 防粘贴误触、历史记录、Markdown 渲染
 - 配置管理：YAML 配置文件 + 环境变量 + 命令行参数三级优先级
 - Session 持久化：JSONL 格式保存/加载对话历史
 
@@ -120,8 +120,8 @@ pg -session mychat                     # 恢复之前的对话
 | `/reset` | 重置对话上下文 |
 | `/export test.md` | 导出对话为 Markdown |
 | 按 `↑` `↓` | 历史记录浏览 |
-| 按 `Tab` | 文件路径补全 |
-| 按 `Ctrl+D` | 退出程序 |
+| 按 `Enter` 换行后按 `Esc` | 多行输入 + 提交 |
+| 按 `Ctrl+C` | 退出程序 |
 
 ---
 
@@ -142,12 +142,13 @@ pg -session mychat                     # 恢复之前的对话
 
 | 按键 | 作用 |
 |------|------|
+| `Enter` | 插入换行（多行输入） |
+| `Esc` | 提交消息 |
 | `↑` `↓` | 浏览历史记录 |
-| `Alt+Enter` | 多行输入 |
-| `Tab` | 文件路径补全 |
 | `Ctrl+L` | 清屏 |
-| `Ctrl+C` | 取消当前输入 |
-| `Ctrl+D` | 退出 |
+| `Ctrl+C` | 退出 |
+| `Ctrl+D` | 输入为空时退出，否则删除字符 |
+| 粘贴 | 直接写入，绕过 Enter 逻辑（防误触） |
 
 ### CLI 子命令
 
@@ -290,9 +291,12 @@ pi-go/
 │       ├── file.go     #     read_file / write_file / list_dir / search_file
 │       └── shell.go    #     shell 执行
 │
-├── tui/                # 终端 UI —— 交互界面 (!windows)
+├── tui/                # 终端 UI —— Bubbletea 驱动 (!windows)
 │   ├── chat.go         #   ChatUI + 对话内命令处理 + 对话导出
-│   ├── terminal.go     #   终端原语 + LineEditor (多行/历史/补全)
+│   ├── model.go        #   Bubbletea Model (ChatModel: Init/Update/View)
+│   ├── stream.go       #   Agent Stream → Bubbletea Cmd 适配
+│   ├── terminal.go     #   颜色样式函数 (Green/Bold/Dim/Red 等)
+│   ├── box.go          #   Unicode 框线组件
 │   ├── highlight.go    #   语法高亮 (Go/Python/JS/Shell/JSON/YAML)
 │   └── markdown.go     #   Markdown → ANSI 渲染
 │
@@ -658,6 +662,8 @@ go build ./cmd/pg/
 
 这部分指南面向希望增强终端 UI 的能力（语法高亮语言支持、Markdown 渲染规则、终端组件等）。
 
+TUI 层基于 [Bubbletea](https://github.com/charmbracelet/bubbletea) 框架 + [Bubbles/Textarea](https://github.com/charmbracelet/bubbles/textarea) 组件。核心 Model 定义在 `tui/model.go`（`ChatModel`），按键处理通过 `handleKeyMsg`/`handleEnter`/`handlePaste` 等方法路由。
+
 #### 增加语法高亮语言
 
 修改 `tui/highlight.go`：
@@ -689,13 +695,13 @@ func highlightLine(line, lang string) string {
 
 核心函数 `MarkdownLine(line string) string` 对每行文本进行正则匹配并包装 ANSI 转义码。
 
-#### 扩展 LineEditor 功能
+#### 扩展按键处理
 
-`tui/terminal.go` 中的 `LineEditor` 结构体已经在内部封装了所有编辑状态。如果要增加 Ctrl+R 反向搜索、语法感知补全等高级功能，需要：
+修改 `tui/model.go` 的 `handleKeyMsg`：
 
-1. 在 `readKey()` 的按键序列匹配中添加新按键。
-2. 在 `ReadLine()` 主循环中添加新 case 处理。
-3. 利用 `le.renderAll()` 重绘更新屏幕。
+- 在 `switch msg.Type` 中新增 case，处理新按键。
+- 如需自定义 Textarea 样式，修改 `NewChatModel()` 中的 `FocusedStyle`/`BlurredStyle`（使用 lipgloss）。
+- Agent 流式渲染逻辑在 `tui/stream.go` 的 `handleStream` 中，事件类型路由在 `switch evt.Type`。
 
 ---
 
@@ -787,6 +793,17 @@ type Tool interface {
 func NewChatUI(ag *agent.Agent, opts ...ChatUIOption) *ChatUI
 func (ui *ChatUI) Run(ctx context.Context) error
 func (ui *ChatUI) ExportConversation(path string) error
+
+// 颜色样式（用于 ANSI 输出）
+func Green(s string) string
+func Bold(s string) string
+func Dim(s string) string
+func Red(s string) string
+// ... 等
+
+// Markdown 渲染
+func MarkdownLine(line string) string
+func RenderMarkdown(text string) string
 ```
 
 ---

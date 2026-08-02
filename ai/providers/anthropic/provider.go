@@ -268,7 +268,7 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 			// 提取 usage（在 message.usage 中）
 		case "content_block_start":
 			var cb struct {
-				Index        int    `json:"index"`
+				Index        int `json:"index"`
 				ContentBlock struct {
 					Type string `json:"type"`
 					ID   string `json:"id"`
@@ -287,9 +287,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				toolIdx = cb.Index
 				tools[toolIdx] = &toolState{id: cb.ContentBlock.ID, name: cb.ContentBlock.Name}
 				out <- ai.Event{
-					Type: ai.EventToolCallStart,
+					Type:  ai.EventToolCallStart,
 					Index: toolIdx,
-					TC:   &ai.ToolCall{ID: cb.ContentBlock.ID, Name: cb.ContentBlock.Name},
+					TC:    &ai.ToolCall{ID: cb.ContentBlock.ID, Name: cb.ContentBlock.Name},
 				}
 			}
 		case "content_block_delta":
@@ -311,9 +311,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 				if ts, ok := tools[cb.Index]; ok {
 					ts.args.WriteString(cb.Delta.PartialJSON)
 					out <- ai.Event{
-						Type: ai.EventToolCallDelta,
+						Type:  ai.EventToolCallDelta,
 						Index: cb.Index,
-						TC:   &ai.ToolCall{ID: ts.id, Name: ts.name, Arguments: ts.args.String()},
+						TC:    &ai.ToolCall{ID: ts.id, Name: ts.name, Arguments: ts.args.String()},
 					}
 				}
 			}
@@ -326,9 +326,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 			}
 			if ts, ok := tools[cb.Index]; ok {
 				out <- ai.Event{
-					Type: ai.EventToolCallEnd,
+					Type:  ai.EventToolCallEnd,
 					Index: cb.Index,
-					TC:   &ai.ToolCall{ID: ts.id, Name: ts.name, Arguments: ts.args.String()},
+					TC:    &ai.ToolCall{ID: ts.id, Name: ts.name, Arguments: ts.args.String()},
 				}
 				delete(tools, cb.Index)
 			}
@@ -358,5 +358,9 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 		case "ping":
 			// 心跳，忽略
 		}
+	}
+	if scanner.Err() != nil {
+		logger.Error("I/O 错误或缓冲区溢出", lg.Fields{"err": scanner.Err()})
+		out <- ai.Event{Type: ai.EventError, Err: scanner.Err()}
 	}
 }

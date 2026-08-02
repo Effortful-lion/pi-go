@@ -55,9 +55,9 @@ func New(cfg Config) ai.Provider {
 
 // --- ai.Provider 实现 ---
 
-func (p *provider) ID() string               { return "openai" }
-func (p *provider) Name() string             { return "OpenAI" }
-func (p *provider) Models() []ai.ModelInfo   { return p.models }
+func (p *provider) ID() string             { return "openai" }
+func (p *provider) Name() string           { return "OpenAI" }
+func (p *provider) Models() []ai.ModelInfo { return p.models }
 func (p *provider) Model(modelID string) (ai.Model, error) {
 	for _, mi := range p.models {
 		if mi.ID == modelID {
@@ -164,9 +164,9 @@ func (m *model) buildRequest(ctx ai.Context) map[string]any {
 			messages = append(messages, am)
 		case ai.RoleTool:
 			messages = append(messages, map[string]any{
-				"role":           "tool",
-				"tool_call_id":   msg.ToolCallID,
-				"content":        msg.Content,
+				"role":         "tool",
+				"tool_call_id": msg.ToolCallID,
+				"content":      msg.Content,
 			})
 		}
 	}
@@ -225,8 +225,8 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	// 流状态追踪
-	var textSeq int       // 文本块序号计数器
-	var curTextIdx = -1    // 当前正在进行中的文本块序号，-1 表示无
+	var textSeq int                         // 文本块序号计数器
+	var curTextIdx = -1                     // 当前正在进行中的文本块序号，-1 表示无
 	toolCalls := make(map[int]*toolCallAcc) // key: index，跨 chunk 累积工具调用
 
 	for scanner.Scan() {
@@ -286,6 +286,10 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 			}
 		}
 	}
+	if scanner.Err() != nil {
+		logger.Error("I/O 错误或缓冲区溢出", lg.Fields{"err": scanner.Err()})
+		out <- ai.Event{Type: ai.EventError, Err: scanner.Err()}
+	}
 
 	// 关闭未完成的文本块
 	if curTextIdx >= 0 {
@@ -309,7 +313,7 @@ type toolCallAcc struct {
 type oaiChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string          `json:"content"`
+			Content   string             `json:"content"`
 			ToolCalls []oaiToolCallChunk `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
