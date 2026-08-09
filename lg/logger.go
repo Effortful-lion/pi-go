@@ -2,11 +2,10 @@ package lg
 
 import (
 	"fmt"
+	"maps"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -26,11 +25,12 @@ import (
 //	userLog := lg.New(userWriter).Module("user")
 //	userLog.Info("用户登录成功")
 type Logger struct {
-	module     string  // 所属模块
-	writer     Writer  // 输出目标（通常是 Router）
-	writerSrc  *Logger // writer 来源 Logger：非空时 log 从此 Logger 动态读取 writer
-	fields     Fields  // 预置的固定字段
-	callerSkip int     // 调用栈跳过层数
+	module       string  // 所属模块
+	writer       Writer  // 输出目标
+	fields       Fields  // 预置的固定字段
+	callerSkip   int     // 调用栈跳过层数
+	disableCaller bool   // 是否关闭 caller 文件位置采集
+	fatalHook    func(entry *Entry) bool // Fatal 回调：返回 true 表示已处理，不再 os.Exit
 }
 
 // New 创建一个日志记录器。
@@ -44,12 +44,26 @@ func New(writer Writer) *Logger {
 	}
 }
 
+// DisableCaller 关闭 caller 文件位置采集，减少 runtime.Caller 开销。
+// 返回 *Logger 以便链式调用。
+func (l *Logger) DisableCaller() *Logger {
+	l.disableCaller = true
+	return l
+}
+
+// SetFatalHook 设置 Fatal 日志的回调。
+// hook 接收日志 entry，返回 true 表示已处理，Logger 不再调用 os.Exit(1)。
+// 返回 *Logger 以便链式调用。
+func (l *Logger) SetFatalHook(hook func(entry *Entry) bool) *Logger {
+	l.fatalHook = hook
+	return l
+}
+
 // Module 创建一个绑定到指定模块的子 Logger。
-// 该 Logger 的所有日志都会带上模块名，Router 会根据模块名分流。
+// 该 Logger 的所有日志都会带上模块名。
 //
-// 子 Logger 与父 Logger 共享同一个 writer 引用。
-// 注意：子 Logger 在创建时复制父 Logger 的 writer，
-// 如需在 SetDefault/SetPath 后自动跟随，应使用包级 Module() 函数创建。
+// 子 Logger 创建时复制父 Logger 的 writer 和 fields，
+// 后续父 Logger 的 writer 变化不会影响子 Logger。
 func (l *Logger) Module(module string) *Logger {
 	return &Logger{
 		module:     module,
@@ -63,12 +77,8 @@ func (l *Logger) Module(module string) *Logger {
 // 固定字段会自动附加到每条日志中。
 func (l *Logger) With(fields Fields) *Logger {
 	merged := Fields{}
-	for k, v := range l.fields {
-		merged[k] = v
-	}
-	for k, v := range fields {
-		merged[k] = v
-	}
+	maps.Copy(merged, l.fields)
+	maps.Copy(merged, fields)
 	return &Logger{
 		module:     l.module,
 		writer:     l.writer,
@@ -99,7 +109,12 @@ func (l *Logger) Error(msg string, fields ...Fields) {
 
 // Fatal 输出致命日志并退出程序。
 func (l *Logger) Fatal(msg string, fields ...Fields) {
-	l.log(LevelFatal, msg, fields...)
+	entry := l.log(LevelFatal, msg, fields...)
+	if l.fatalHook != nil && entry != nil {
+		if l.fatalHook(entry) {
+			return
+		}
+	}
 	os.Exit(1)
 }
 
@@ -125,22 +140,23 @@ func (l *Logger) Errorf(format string, args ...any) {
 
 // Fatalf 格式化致命日志并退出程序。
 func (l *Logger) Fatalf(format string, args ...any) {
-	l.log(LevelFatal, fmt.Sprintf(format, args...))
+	entry := l.log(LevelFatal, fmt.Sprintf(format, args...))
+	if l.fatalHook != nil && entry != nil {
+		if l.fatalHook(entry) {
+			return
+		}
+	}
 	os.Exit(1)
 }
 
 // log 是内部统一的日志写入方法。
-func (l *Logger) log(level Level, msg string, fields ...Fields) {
-	// writerSrc 非空时从源 Logger 动态读取 writer（用于 Module() 子 Logger 跟随 defaultLogger 变化）
+func (l *Logger) log(level Level, msg string, fields ...Fields) *Entry {
 	w := l.writer
-	if l.writerSrc != nil {
-		w = l.writerSrc.writer
-	}
 	if w == nil {
-		return
+		return nil
 	}
 	if level < w.Level() {
-		return
+		return nil
 	}
 
 	// 合并字段
@@ -154,16 +170,22 @@ func (l *Logger) log(level Level, msg string, fields ...Fields) {
 		}
 	}
 
+	var file string
+	if !l.disableCaller {
+		file = caller(l.callerSkip)
+	}
+
 	entry := &Entry{
 		Time:    time.Now(),
 		Level:   level,
 		Module:  l.module,
-		File:    caller(l.callerSkip),
+		File:    file,
 		Message: msg,
 		Fields:  merged,
 	}
 
 	_ = w.Write(entry)
+	return entry
 }
 
 // caller 获取调用者的文件名和行号。
@@ -189,21 +211,6 @@ func caller(skip int) string {
 // defaultLogger 是包级别默认 Logger。
 var defaultLogger = New(NewConsoleWriter(os.Stdout, LevelInfo))
 
-// SetDefault 替换默认 Logger。
-// 注意：此方式不会更新已通过包级 Module() 创建的子 Logger，
-// 因为它们持有 defaultLogger 指针（指向旧对象）。
-// 推荐用 SetDefaultWriter 只修改 writer 字段，保持子 Logger 引用有效。
-func SetDefault(l *Logger) {
-	defaultLogger = l
-}
-
-// SetDefaultWriter 替换默认 Logger 的 writer 字段。
-// 所有通过包级 Module() 创建的子 Logger 会自动跟随新 writer，
-// 因为子 Logger 持有 defaultLogger 指针，log 时从其 writer 字段读取。
-func SetDefaultWriter(w Writer) {
-	defaultLogger.writer = w
-}
-
 // Default 返回默认 Logger。
 func Default() *Logger {
 	return defaultLogger
@@ -211,186 +218,14 @@ func Default() *Logger {
 
 // Module 使用默认 Logger 创建模块子 Logger。
 //
-// 子 Logger 持有 defaultLogger 指针作为 writerSrc，
-// log 时从 defaultLogger.writer 动态读取最新 writer。
-// 通过 SetDefaultWriter 修改 defaultLogger.writer 后，子 Logger 自动跟随。
+// 子 Logger 创建时复制 defaultLogger 的 writer 和 fields，
+// 后续 defaultLogger 的 writer 变化不会影响子 Logger。
 func Module(module string) *Logger {
 	return &Logger{
 		module:     module,
-		writerSrc:  defaultLogger,
+		writer:     defaultLogger.writer,
 		fields:     defaultLogger.fields,
 		callerSkip: 3, // Module → Debug/Info... → caller
-	}
-}
-
-// ============================================================================
-// LogOption — 日志配置选项
-// ============================================================================
-
-// LogOption 日志配置选项函数，传入 SetPath 定制日志行为。
-type LogOption func(*logConfig)
-
-type logConfig struct {
-	levelDirs      []levelDir
-	rotateInterval time.Duration
-	rotateSize     int64
-	retention      time.Duration
-}
-
-type levelDir struct {
-	level Level
-	dir   string
-}
-
-// WithLevelDir 将指定级别的日志输出到独立子目录。
-func WithLevelDir(level Level, dir string) LogOption {
-	return func(c *logConfig) {
-		c.levelDirs = append(c.levelDirs, levelDir{level: level, dir: dir})
-	}
-}
-
-// WithRotateByInterval 按时间间隔切割日志文件。
-// 文件名自动追加日期+时钟后缀，精度由间隔决定：
-//   - < 1小时 → pg_2026-08-01_12-00-00.log
-//   - >= 1小时 → pg_2026-08-01_12-00.log
-//   - >= 1天 → pg_2026-08-01.log
-func WithRotateByInterval(d time.Duration) LogOption {
-	return func(c *logConfig) {
-		c.rotateInterval = d
-	}
-}
-
-// WithRotateBySize 按文件大小切割日志文件。
-// 超过 size 字节时自动切换新文件，文件名追加 .001 等序号。
-func WithRotateBySize(size int64) LogOption {
-	return func(c *logConfig) {
-		c.rotateSize = size
-	}
-}
-
-// WithRetention 定时清理过期日志文件。
-// maxAge: 日志保留时长，超过此时间的 .log 文件将被删除。
-// 检查间隔 = min(maxAge, 1小时)。
-func WithRetention(maxAge time.Duration) LogOption {
-	return func(c *logConfig) {
-		c.retention = maxAge
-	}
-}
-
-// SetPath 将默认 Logger 和 Frame Logger 的输出重定向到指定目录下的日志文件。
-// dir: 日志目录，如 "logs"
-// level: 最低输出级别
-// pattern: 文件名模式构建器，Build() 自动追加 .log 后缀
-// opts: 可选配置，如 WithLevelDir 分级目录等
-//
-// 使用示例:
-//
-//	// 不分级: logs/pg_2026-08-01.log
-//	lg.SetPath("logs", lg.LevelInfo,
-//	    lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"))
-//
-//	// 按级别分目录:
-//	//   logs/info/pg_2026-08-01.log
-//	//   logs/error/pg_2026-08-01.log
-//	lg.SetPath("logs", lg.LevelInfo,
-//	    lg.NewLogNamePattern().Module().Char("_").Date("2006-01-02"),
-//	    lg.WithLevelDir(lg.LevelInfo, "info"),
-//	    lg.WithLevelDir(lg.LevelError, "error"),
-//	)
-func SetPath(dir string, level Level, pattern *LogNamePattern, opts ...LogOption) error {
-	cfg := &logConfig{}
-	for _, o := range opts {
-		o(cfg)
-	}
-
-	// 定时切割：在 pattern 末尾追加日期+时钟
-	if cfg.rotateInterval > 0 {
-		dateLayout, clockLayout := intervalLayout(cfg.rotateInterval)
-		pattern.Char("_").Date(dateLayout)
-		if clockLayout != "" {
-			pattern.Char("_").Clock(clockLayout)
-		}
-	}
-
-	logName := pattern.Build()
-
-	// 没有分级配置：单个 FileWriter
-	if len(cfg.levelDirs) == 0 {
-		fw, err := NewFileWriterWithLogName(dir, level, logName)
-		if err != nil {
-			return err
-		}
-		fw.rotateSize = cfg.rotateSize
-		SetDefaultWriter(fw)
-		SetFrameWriter(fw)
-		startRetention(dir, cfg.retention)
-		return nil
-	}
-
-	// 有分级配置：各 LevelDir 子目录，MultiWriter 组合
-	// 注意：不创建根目录汇总文件，避免日志同时出现在根目录和子目录
-	var writers []Writer
-
-	for _, ld := range cfg.levelDirs {
-		subDir := dir + "/" + ld.dir
-		fw, err := NewFileWriterWithLogName(subDir, ld.level, logName)
-		if err != nil {
-			return err
-		}
-		fw.rotateSize = cfg.rotateSize
-		writers = append(writers, fw)
-	}
-
-	mw := NewMultiWriter(writers...)
-	SetDefaultWriter(mw)
-	SetFrameWriter(mw)
-	startRetention(dir, cfg.retention)
-	return nil
-}
-
-// startRetention 启动后台清理 goroutine，定期删除过期日志文件。
-func startRetention(dir string, maxAge time.Duration) {
-	if maxAge <= 0 {
-		return
-	}
-	interval := maxAge
-	if interval > time.Hour {
-		interval = time.Hour
-	}
-	go func() {
-		for {
-			time.Sleep(interval)
-			cleanDir(dir, maxAge)
-		}
-	}()
-}
-
-// cleanDir 递归清理目录中超过 maxAge 的 .log 文件。
-func cleanDir(dir string, maxAge time.Duration) {
-	cutoff := time.Now().Add(-maxAge)
-	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(info.Name(), ".log") {
-			return nil
-		}
-		if info.ModTime().Before(cutoff) {
-			os.Remove(path)
-		}
-		return nil
-	})
-}
-
-// intervalLayout 根据时间间隔返回日期和时钟的 format layout。
-func intervalLayout(d time.Duration) (dateLayout, clockLayout string) {
-	switch {
-	case d >= 24*time.Hour:
-		return "2006-01-02", ""
-	case d >= time.Hour:
-		return "2006-01-02", "15-04"
-	default:
-		return "2006-01-02", "15-04-05"
 	}
 }
 

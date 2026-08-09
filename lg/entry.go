@@ -1,7 +1,11 @@
 package lg
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -35,14 +39,37 @@ func (e *Entry) Format() string {
 	return msg
 }
 
-// format 格式化 Fields 为键值对字符串。
+// FormatJSON 将 Entry 序列化为扁平 JSON 字节数组。
+// 输出示例：{"time":"2026-08-10T12:00:00Z","level":"INFO","module":"user","file":"app.go:42","message":"hello","uid":123}
+func (e *Entry) FormatJSON() ([]byte, error) {
+	m := make(map[string]any, 6+len(e.Fields))
+	m["time"] = e.Time.Format(time.RFC3339)
+	m["level"] = e.Level.String()
+	m["message"] = e.Message
+	if e.Module != "" {
+		m["module"] = e.Module
+	}
+	if e.File != "" {
+		m["file"] = e.File
+	}
+	maps.Copy(m, e.Fields)
+	return json.Marshal(m)
+}
 func (f Fields) format() string {
 	if len(f) == 0 {
 		return ""
 	}
-	s := ""
-	for k, v := range f {
-		s += fmt.Sprintf(" %s=%v", k, v)
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
 	}
-	return s[1:] // 去掉前导空格
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(fmt.Sprintf("%s=%v", k, f[k]))
+	}
+	return b.String()
 }

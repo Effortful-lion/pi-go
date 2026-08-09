@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestLevelString(t *testing.T) {
@@ -161,54 +160,6 @@ func TestMultiWriter(t *testing.T) {
 	}
 }
 
-func TestRouter(t *testing.T) {
-	var defaultBuf, userBuf, shopBuf bytes.Buffer
-
-	router := NewRouter(NewConsoleWriter(&defaultBuf, LevelInfo))
-	router.Route("user", NewConsoleWriter(&userBuf, LevelDebug))
-	router.Route("shop", NewConsoleWriter(&shopBuf, LevelInfo))
-
-	logger := New(router)
-
-	logger.Module("user").Info("用户登录")
-	if !strings.Contains(userBuf.String(), "用户登录") {
-		t.Error("user log should go to userBuf")
-	}
-	if defaultBuf.Len() > 0 {
-		t.Error("user log should NOT go to defaultBuf")
-	}
-
-	logger.Module("shop").Warn("库存不足")
-	if !strings.Contains(shopBuf.String(), "库存不足") {
-		t.Error("shop log should go to shopBuf")
-	}
-
-	logger.Module("unknown").Error("未知错误")
-	if !strings.Contains(defaultBuf.String(), "未知错误") {
-		t.Error("unknown module should go to defaultBuf")
-	}
-}
-
-func TestRouterUnroute(t *testing.T) {
-	var defaultBuf, userBuf bytes.Buffer
-	router := NewRouter(NewConsoleWriter(&defaultBuf, LevelInfo))
-	router.Route("user", NewConsoleWriter(&userBuf, LevelInfo))
-
-	logger := New(router)
-
-	logger.Module("user").Info("before unroute")
-	if userBuf.Len() == 0 {
-		t.Error("should go to userBuf before unroute")
-	}
-
-	router.Unroute("user")
-
-	logger.Module("user").Info("after unroute")
-	if !strings.Contains(defaultBuf.String(), "after unroute") {
-		t.Error("after unroute, should go to defaultBuf")
-	}
-}
-
 func TestLoggerWithFields(t *testing.T) {
 	var buf bytes.Buffer
 	w := NewConsoleWriter(&buf, LevelInfo)
@@ -265,7 +216,10 @@ func TestLoggerModuleWithInherit(t *testing.T) {
 
 func TestPackageLevelFunctions(t *testing.T) {
 	var buf bytes.Buffer
-	SetDefault(New(NewConsoleWriter(&buf, LevelDebug)))
+	// 保存并替换 defaultLogger，避免污染其他测试
+	orig := defaultLogger
+	defaultLogger = New(NewConsoleWriter(&buf, LevelDebug))
+	defer func() { defaultLogger = orig }()
 
 	Info("包级别日志", Fields{"key": "val"})
 	output := buf.String()
@@ -301,192 +255,194 @@ func TestCallerLocation(t *testing.T) {
 	}
 }
 
-func TestSetPath_NoLevelDir(t *testing.T) {
-	dir := t.TempDir()
-	pattern := NewLogNamePattern().Date("2006-01-02")
-
-	err := SetPath(dir, LevelInfo, pattern)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	Info("hello no dirs")
-
-	// 检查日志文件在 dir 根目录下
-	entries, _ := os.ReadDir(dir)
-	if len(entries) == 0 {
-		t.Fatal("no log files created")
+func TestFieldsFormat_Sorted(t *testing.T) {
+	f := Fields{"z": 1, "a": 2, "m": 3}
+	got := f.format()
+	want := "a=2 m=3 z=1"
+	if got != want {
+		t.Errorf("fields format: got %q, want %q", got, want)
 	}
 }
 
-func TestSetPath_WithLevelDir(t *testing.T) {
-	dir := t.TempDir()
-	pattern := NewLogNamePattern().Date("2006-01-02")
+func TestConsoleWriter_WithJSONFormatter(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewConsoleWriter(&buf, LevelInfo)
+	w.SetFormatter(JSONFormatter)
 
-	err := SetPath(dir, LevelInfo, pattern,
-		WithLevelDir(LevelError, "error"),
-		WithLevelDir(LevelInfo, "info"),
-	)
-	if err != nil {
-		t.Fatal(err)
+	logger := New(w)
+	logger.Info("hello", Fields{"uid": 123})
+
+	output := buf.String()
+	if !strings.Contains(output, `"message":"hello"`) {
+		t.Errorf("expected json message, got: %s", output)
 	}
-
-	// 写一条 error 日志
-	Error("something wrong")
-	// 写一条 info 日志
-	Info("all good")
-
-	// error 日志应该在 error 子目录
-	errorEntries, _ := os.ReadDir(dir + "/error")
-	if len(errorEntries) == 0 {
-		t.Error("expected log file in error/ directory")
+	if !strings.Contains(output, `"uid":123`) {
+		t.Errorf("expected json uid, got: %s", output)
 	}
-
-	// info 日志应该在 info 子目录
-	infoEntries, _ := os.ReadDir(dir + "/info")
-	if len(infoEntries) == 0 {
-		t.Error("expected log file in info/ directory")
-	}
-
-	// 根目录不应该有日志文件（避免重复输出）
-	rootEntries, _ := os.ReadDir(dir)
-	for _, e := range rootEntries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".log") {
-			t.Errorf("root directory should NOT contain log files, got: %s", e.Name())
-		}
+	if !strings.Contains(output, `"level":"INFO"`) {
+		t.Errorf("expected json level, got: %s", output)
 	}
 }
 
-func TestSetPath_LevelFilter(t *testing.T) {
-	dir := t.TempDir()
-	pattern := NewLogNamePattern().Date("2006-01-02")
+func TestConsoleWriter_WithJSONFormatter_LevelFilter(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewConsoleWriter(&buf, LevelWarn)
+	w.SetFormatter(JSONFormatter)
 
-	// error 子目录只收 LevelError 及以上
-	err := SetPath(dir, LevelDebug, pattern,
-		WithLevelDir(LevelError, "error"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_ = w.Write(&Entry{Level: LevelDebug, Message: "debug"})
+	_ = w.Write(&Entry{Level: LevelError, Message: "error"})
 
-	Debug("debug msg") // 级别 < LevelError，不应进 error 目录
-	Error("error msg") // 级别 >= LevelError，进 error 目录
-
-	// error 子目录应该只有 error 日志
-	errorEntries, _ := os.ReadDir(dir + "/error")
-	if len(errorEntries) == 0 {
-		t.Fatal("expected log file in error/")
+	if strings.Contains(buf.String(), "debug") {
+		t.Error("debug should be filtered")
 	}
-	data, _ := os.ReadFile(dir + "/error/" + errorEntries[0].Name())
-	if strings.Contains(string(data), "debug msg") {
-		t.Error("debug msg should NOT be in error directory")
-	}
-	if !strings.Contains(string(data), "error msg") {
-		t.Error("error msg should be in error directory")
+	if !strings.Contains(buf.String(), "error") {
+		t.Error("error should be written")
 	}
 }
 
-func TestRotateByInterval_Hourly(t *testing.T) {
-	dir := t.TempDir()
+func TestFatalHook_Intercept(t *testing.T) {
+	var buf bytes.Buffer
+	hookCalled := false
 
-	err := SetPath(dir, LevelInfo,
-		NewLogNamePattern().Module(),
-		WithRotateByInterval(time.Hour),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	logger := New(NewConsoleWriter(&buf, LevelFatal)).SetFatalHook(func(e *Entry) bool {
+		hookCalled = true
+		return true // 拦截退出
+	})
 
-	Info("test hourly")
+	logger.Fatal("should not exit")
 
-	entries, _ := os.ReadDir(dir)
-	if len(entries) == 0 {
-		t.Fatal("no log file created")
-	}
-	name := entries[0].Name()
-	// 文件名应包含日期和分钟精度: pg_2026-08-01_12-00.log
-	if !strings.Contains(name, "_") {
-		t.Errorf("expected datetime suffix in filename, got %q", name)
-	}
-	if !strings.HasSuffix(name, ".log") {
-		t.Errorf("expected .log suffix, got %q", name)
+	if !hookCalled {
+		t.Error("fatal hook should be called")
 	}
 }
 
-func TestRotateByInterval_Daily(t *testing.T) {
-	dir := t.TempDir()
+func TestDisableCaller(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewConsoleWriter(&buf, LevelDebug)
 
-	err := SetPath(dir, LevelInfo,
-		NewLogNamePattern().Module(),
-		WithRotateByInterval(24*time.Hour),
-	)
-	if err != nil {
-		t.Fatal(err)
+	// 开启 caller（默认）
+	loggerWithCaller := New(w)
+	loggerWithCaller.Debug("with caller")
+	outputWithCaller := buf.String()
+	if !strings.Contains(outputWithCaller, "logger_test.go") {
+		t.Error("expected caller file in output")
 	}
 
-	Info("test daily")
+	buf.Reset()
 
-	entries, _ := os.ReadDir(dir)
-	if len(entries) == 0 {
-		t.Fatal("no log file created")
+	// 关闭 caller
+	loggerNoCaller := New(w).DisableCaller()
+	loggerNoCaller.Debug("no caller")
+	outputNoCaller := buf.String()
+	if strings.Contains(outputNoCaller, "logger_test.go") {
+		t.Error("caller should be disabled")
 	}
-	name := entries[0].Name()
-	// 文件名应包含日期: pg_2026-08-01.log
-	if !strings.Contains(name, "2026") {
-		t.Errorf("expected date in filename, got %q", name)
-	}
-	if !strings.HasSuffix(name, ".log") {
-		t.Errorf("expected .log suffix, got %q", name)
-	}
-}
-
-func TestRotateByInterval_Minutely(t *testing.T) {
-	dir := t.TempDir()
-
-	err := SetPath(dir, LevelInfo,
-		NewLogNamePattern().Module(),
-		WithRotateByInterval(time.Minute),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	Info("test minutely")
-
-	entries, _ := os.ReadDir(dir)
-	if len(entries) == 0 {
-		t.Fatal("no log file created")
-	}
-	name := entries[0].Name()
-	// 文件名应包含日期和秒精度: pg_2026-08-01_12-00-00.log
-	parts := strings.SplitN(strings.TrimSuffix(name, ".log"), "_", 3)
-	if len(parts) < 3 {
-		t.Errorf("expected module_date_time format, got %q", name)
+	if !strings.Contains(outputNoCaller, "no caller") {
+		t.Error("message should still be present")
 	}
 }
 
-func TestRotateBySize_Switch(t *testing.T) {
-	dir := t.TempDir()
+func TestSetFatalHook_Chain(t *testing.T) {
+	var buf bytes.Buffer
+	hookCalled := false
 
-	err := SetPath(dir, LevelInfo,
-		NewLogNamePattern().Module(),
-		WithRotateBySize(50), // 很小，一条日志就超
-	)
+	logger := New(NewConsoleWriter(&buf, LevelInfo)).
+		With(Fields{"service": "api"}).
+		SetFatalHook(func(e *Entry) bool {
+			hookCalled = true
+			if e.Fields["service"] != "api" {
+				t.Error("expected inherited field 'service'")
+			}
+			return true
+		})
+
+	logger.Fatal("chained fatal")
+
+	if !hookCalled {
+		t.Error("fatal hook should be called")
+	}
+}
+
+func TestFileWriter_SetFormatFn_JSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
+
+	fw, err := NewFileWriter(path, LevelInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fw.Close()
 
-	// 写入多条，触发大小切割
-	Info("line 1")
-	Info("line 2")
-	Info("line 3")
+	// 设置 JSON 格式化
+	fw.SetFormatter(JSONFormatter)
 
-	entries, _ := os.ReadDir(dir)
+	logger := New(fw)
+	logger.Info("hello", Fields{"uid": 123})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"message":"hello"`) {
+		t.Errorf("expected json message in file, got: %s", content)
+	}
+	if !strings.Contains(content, `"uid":123`) {
+		t.Errorf("expected json uid in file, got: %s", content)
+	}
+}
+
+func TestFileWriter_SetFormatFn_Nil_UsesDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
+
+	fw, err := NewFileWriter(path, LevelInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fw.Close()
+
+	// 不设置 formatter，使用默认文本格式
+	logger := New(fw)
+	logger.Info("hello")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "[INFO]") {
+		t.Errorf("expected text format in file, got: %s", content)
+	}
+}
+
+func TestFileWriter_SetRotateSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
+
+	fw, err := NewFileWriter(path, LevelInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fw.Close()
+
+	// 设置很小的轮转阈值，一条日志就触发
+	fw.SetRotateSize(10)
+
+	logger := New(fw)
+	logger.Info("line 1")
+	logger.Info("line 2")
+	logger.Info("line 3")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(entries) < 2 {
-		t.Fatalf("expected at least 2 files from size rotation, got %d", len(entries))
+		t.Fatalf("expected at least 2 files after rotation, got %d", len(entries))
 	}
 
-	// 检查有序号的文件
+	// 检查有序号文件
 	hasSeq := false
 	for _, e := range entries {
 		if strings.Contains(e.Name(), ".001.") || strings.Contains(e.Name(), ".002.") {
@@ -498,124 +454,28 @@ func TestRotateBySize_Switch(t *testing.T) {
 	}
 }
 
-func TestRotateBySize_SeqFormat(t *testing.T) {
+func TestFileWriter_SetRotateSize_Disabled(t *testing.T) {
 	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
 
-	err := SetPath(dir, LevelInfo,
-		NewLogNamePattern().Module(),
-		WithRotateBySize(30),
-	)
+	fw, err := NewFileWriter(path, LevelInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fw.Close()
 
-	Info("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") // 长消息触发切割
-	Info("bb")
+	// 显式关闭轮转
+	fw.SetRotateSize(0)
 
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		name := e.Name()
-		if strings.Contains(name, ".") && !strings.HasSuffix(name, ".log") {
-			if !strings.Contains(name, ".00") {
-				t.Errorf("unexpected seq format: %q", name)
-			}
-		}
-	}
-}
+	logger := New(fw)
+	logger.Info("line 1")
+	logger.Info("line 2")
 
-func TestRetention_CleanOldFiles(t *testing.T) {
-	dir := t.TempDir()
-
-	// 创建一个"旧"日志文件（修改时间设为 2 天前）
-	oldPath := filepath.Join(dir, "old.log")
-	_ = os.WriteFile(oldPath, []byte("old"), 0644)
-	oldTime := time.Now().Add(-48 * time.Hour)
-	_ = os.Chtimes(oldPath, oldTime, oldTime)
-
-	// 创建一个"新"日志文件
-	newPath := filepath.Join(dir, "new.log")
-	_ = os.WriteFile(newPath, []byte("new"), 0644)
-
-	// 保留 24 小时，应删除 old.log
-	cleanDir(dir, 24*time.Hour)
-
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Error("old.log should be deleted")
-	}
-	if _, err := os.Stat(newPath); os.IsNotExist(err) {
-		t.Error("new.log should be kept")
-	}
-}
-
-func TestRetention_OnlyLogFiles(t *testing.T) {
-	dir := t.TempDir()
-
-	// 创建 .txt 文件（不应被删除）
-	txtPath := filepath.Join(dir, "readme.txt")
-	_ = os.WriteFile(txtPath, []byte("readme"), 0644)
-	oldTime := time.Now().Add(-48 * time.Hour)
-	_ = os.Chtimes(txtPath, oldTime, oldTime)
-
-	cleanDir(dir, 24*time.Hour)
-
-	if _, err := os.Stat(txtPath); os.IsNotExist(err) {
-		t.Error("non-log files should not be deleted")
-	}
-}
-
-func TestRetention_SubDirs(t *testing.T) {
-	dir := t.TempDir()
-
-	// 创建子目录下的旧日志
-	subDir := filepath.Join(dir, "error")
-	_ = os.MkdirAll(subDir, 0755)
-	oldPath := filepath.Join(subDir, "old.log")
-	_ = os.WriteFile(oldPath, []byte("old"), 0644)
-	oldTime := time.Now().Add(-48 * time.Hour)
-	_ = os.Chtimes(oldPath, oldTime, oldTime)
-
-	cleanDir(dir, 24*time.Hour)
-
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Error("old log in subdir should be deleted")
-	}
-}
-
-// TestModule_FollowsSetDefault 验证包级 Module() 创建的子 Logger
-// 会跟随 defaultLogger 的 writer 变化（SetPath 通过 SetDefault 替换）。
-//
-// 模拟场景：
-//  1. 包初始化时通过 var logger = lg.Module("my-openai") 创建子 Logger
-//     （此时 defaultLogger 是 ConsoleWriter，绑定到 stdout）
-//  2. 之后调用 lg.SetPath() 替换 defaultLogger 为 FileWriter
-//  3. 子 Logger 调用 Info()，期望写入文件而不是 stdout
-func TestModule_FollowsSetDefault(t *testing.T) {
-	dir := t.TempDir()
-	pattern := NewLogNamePattern().Date("2006-01-02")
-
-	// 模拟包初始化时创建的子 Logger
-	subLogger := Module("my-openai")
-
-	// 之后调用 SetPath 替换 defaultLogger
-	if err := SetPath(dir, LevelInfo, pattern); err != nil {
-		t.Fatal(err)
-	}
-
-	// 子 Logger 写日志，应该写入文件
-	subLogger.Info("after SetPath")
-
-	// 验证日志文件被创建
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) == 0 {
-		t.Fatal("sub logger should have written to file after SetPath")
-	}
-
-	// 检查日志内容
-	data, _ := os.ReadFile(dir + "/" + entries[0].Name())
-	if !strings.Contains(string(data), "after SetPath") {
-		t.Errorf("expected log content in file, got: %s", data)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file without rotation, got %d", len(entries))
 	}
 }

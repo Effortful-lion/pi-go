@@ -29,15 +29,41 @@ type Writer interface {
 	Close() error
 }
 
+// Formatter 将 Entry 格式化为字符串。
+// 实现此接口可自定义日志输出格式。
+type Formatter interface {
+	Format(entry *Entry) string
+}
+
+// textFormatter 默认文本格式化器。
+type textFormatter struct{}
+
+func (textFormatter) Format(e *Entry) string { return e.Format() }
+
+// JSONFormatter 内置 JSON 格式化器。
+// 用法：writer.SetFormatter(lg.JSONFormatter)
+var JSONFormatter Formatter = jsonFormatter{}
+
+type jsonFormatter struct{}
+
+func (jsonFormatter) Format(e *Entry) string {
+	b, err := e.FormatJSON()
+	if err != nil {
+		return fmt.Sprintf(`{"error":"json marshal failed","message":%q}`, e.Message)
+	}
+	return string(b)
+}
+
 // ============================================================================
 // ConsoleWriter — 控制台输出
 // ============================================================================
 
 // ConsoleWriter 将日志写入 io.Writer（通常为 os.Stdout 或 os.Stderr）。
 type ConsoleWriter struct {
-	out   io.Writer
-	level Level
-	mu    sync.Mutex
+	out       io.Writer
+	level     Level
+	formatter Formatter
+	mu        sync.Mutex
 }
 
 // NewConsoleWriter 创建一个控制台 Writer。
@@ -50,7 +76,19 @@ func NewConsoleWriter(out io.Writer, level Level) *ConsoleWriter {
 	return &ConsoleWriter{out: out, level: level}
 }
 
+// SetFormatter 设置格式化器。nil 表示使用默认文本格式。
+func (w *ConsoleWriter) SetFormatter(f Formatter) {
+	w.formatter = f
+}
+
 func (w *ConsoleWriter) Level() Level { return w.level }
+
+func (w *ConsoleWriter) formatLine(entry *Entry) string {
+	if w.formatter != nil {
+		return w.formatter.Format(entry)
+	}
+	return entry.Format()
+}
 
 func (w *ConsoleWriter) Write(entry *Entry) error {
 	if entry.Level < w.level {
@@ -58,7 +96,7 @@ func (w *ConsoleWriter) Write(entry *Entry) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_, err := fmt.Fprintln(w.out, entry.Format())
+	_, err := fmt.Fprintln(w.out, w.formatLine(entry))
 	return err
 }
 
@@ -159,6 +197,7 @@ func (p *LogNamePattern) Build() LogName {
 // LogName 函数动态决定文件名，实现按日期/模块/时间戳等维度自动切分。
 type FileWriter struct {
 	dir     string  // 日志目录（LogName 模式下使用）
+	path    string  // 静态模式下的文件路径
 	file    *os.File // 当前打开的文件（静态模式）
 	level   Level
 	logName LogName   // 文件名生成器（动态模式）
@@ -166,7 +205,8 @@ type FileWriter struct {
 
 	rotateSize int64 // 文件大小切割阈值（0 = 不限制）
 	written    int64 // 当前文件已写入字节数
-	seq        int   // 当前序号，0 表示不追加序号
+	seq        int   // 当前序号，0 = 不追加序号
+	formatter  Formatter // nil 时使用默认文本格式
 	mu         sync.Mutex
 }
 
@@ -185,7 +225,7 @@ func NewFileWriter(path string, level Level) (*FileWriter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lg: open file %s: %w", path, err)
 	}
-	return &FileWriter{file: f, level: level}, nil
+	return &FileWriter{path: path, file: f, level: level}, nil
 }
 
 // NewFileWriterWithLogName 创建一个动态文件 Writer。
@@ -258,7 +298,7 @@ func (w *FileWriter) Write(entry *Entry) error {
 		}
 	}
 
-	line := entry.Format() + "\n"
+	line := w.formatLine(entry) + "\n"
 	n, err := fmt.Fprint(w.file, line)
 	if err != nil {
 		return err
@@ -272,6 +312,16 @@ func (w *FileWriter) Write(entry *Entry) error {
 		w.curName = ""
 		w.written = 0
 		w.seq++
+
+		// 静态路径模式：创建带序号的新文件
+		if w.logName == nil && w.path != "" && w.seq > 0 {
+			openPath := insertSeq(w.path, w.seq)
+			f, err := os.OpenFile(openPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return fmt.Errorf("lg: open file %s: %w", openPath, err)
+			}
+			w.file = f
+		}
 	}
 
 	return nil
@@ -284,6 +334,26 @@ func insertSeq(name string, seq int) string {
 		return name
 	}
 	return name[:dot] + fmt.Sprintf(".%03d", seq) + name[dot:]
+}
+
+// formatLine 将 Entry 格式化为一行文本。
+func (w *FileWriter) formatLine(entry *Entry) string {
+	if w.formatter != nil {
+		return w.formatter.Format(entry)
+	}
+	return entry.Format()
+}
+
+// SetFormatter 设置格式化器。nil 表示使用默认文本格式。
+func (w *FileWriter) SetFormatter(f Formatter) {
+	w.formatter = f
+}
+
+// SetRotateSize 设置文件大小轮转阈值。
+// 超过 size 字节时自动切换新文件，文件名追加 .001 等序号。
+// size <= 0 表示关闭大小轮转。
+func (w *FileWriter) SetRotateSize(size int64) {
+	w.rotateSize = size
 }
 
 func (w *FileWriter) Close() error {
