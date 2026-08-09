@@ -216,6 +216,13 @@ func Default() *Logger {
 	return defaultLogger
 }
 
+// SetDefault 替换默认 Logger。
+// 注意：此方式不会更新已通过包级 Module() 创建的子 Logger。
+// 推荐在程序启动时尽早调用，或使用 SetDefaultWriter 只修改 writer 字段。
+func SetDefault(l *Logger) {
+	defaultLogger = l
+}
+
 // Module 使用默认 Logger 创建模块子 Logger。
 //
 // 子 Logger 创建时复制 defaultLogger 的 writer 和 fields，
