@@ -31,16 +31,16 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 // ldflags 注入变量（构建时设置）。
 // 版本号唯一来源是 git tag，不在此硬编码。
 // goreleaser 发布时自动注入：-X main.version={{.Version}}
 var (
-	version   = "dev"   // 发布时自动注入 git tag
-	commit    = "none"  // git rev-parse --short HEAD
-	buildDate = "none"  // 构建时间 UTC
+	version   = "dev"  // 发布时自动注入 git tag
+	commit    = "none" // git rev-parse --short HEAD
+	buildDate = "none" // 构建时间 UTC
 )
 
 const defaultSystemPrompt = `You are Pi-Go Agent, an AI coding assistant.

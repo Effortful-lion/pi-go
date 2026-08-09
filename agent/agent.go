@@ -31,8 +31,8 @@ import (
 	"fmt"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
 	"github.com/Effortful-lion/pi-go/tool"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 var logger = lg.Module("[agent]")
@@ -55,7 +55,7 @@ type Config struct {
 	Provider     ai.Provider
 	ModelID      string
 	SystemPrompt string
-	EmojiTheme   string   // 可选：emoji 主题名称，非空时在 system prompt 中注入结构化表达约束
+	EmojiTheme   string // 可选：emoji 主题名称，非空时在 system prompt 中注入结构化表达约束
 	Tools        []tool.Tool
 	MaxSteps     int     // 最大工具调用循环轮数，≤0 时使用默认值 10
 	Temperature  float64 // LLM 采样温度，0 表示使用模型默认值
@@ -173,8 +173,8 @@ func (a *Agent) runLoop(ctx context.Context, out chan<- Event) {
 		stream := a.cfg.Provider.Chat(ctx, a.cfg.ModelID, actx)
 
 		// 消费 ai.Event 流
-		textParts := make([]string, 0, 4)          // 累积文本片段
-		toolCallAcc := make(map[int]*ai.ToolCall)  // index → 累积中的工具调用
+		textParts := make([]string, 0, 4)           // 累积文本片段
+		toolCallAcc := make(map[int]*ai.ToolCall)   // index → 累积中的工具调用
 		toolCallsOrdered := make([]*ai.ToolCall, 0) // 按 index 排序的最终工具调用列表
 		var lastUsage *ai.Usage
 

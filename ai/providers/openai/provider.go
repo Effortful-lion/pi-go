@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 const defaultBaseURL = "https://api.openai.com/v1"
@@ -136,10 +136,10 @@ func (m *model) chat(ctx context.Context, context ai.Context, out chan<- ai.Even
 
 // chatMessage OpenAI 消息格式。
 type chatMessage struct {
-	Role       string          `json:"role"`
-	Content    string          `json:"content,omitempty"`
-	ToolCalls  []toolCallMsg   `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	ToolCalls  []toolCallMsg `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 // toolCallMsg 工具调用消息（assistant 消息中的 tool_calls 数组元素）。
@@ -157,8 +157,8 @@ type toolCallFunc struct {
 
 // toolDef OpenAI 工具定义（tools 数组元素）。
 type toolDef struct {
-	Type     string       `json:"type"`
-	Function toolDefFunc  `json:"function"`
+	Type     string      `json:"type"`
+	Function toolDefFunc `json:"function"`
 }
 
 // toolDefFunc 工具定义中的 function 字段。
@@ -268,8 +268,8 @@ func (m *model) parseSSE(r io.Reader, out chan<- ai.Event) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	// 流状态追踪
-	var textSeq int                         // 文本块序号计数器
-	var curTextIdx = -1                     // 当前正在进行中的文本块序号，-1 表示无
+	var textSeq int                                 // 文本块序号计数器
+	var curTextIdx = -1                             // 当前正在进行中的文本块序号，-1 表示无
 	toolCalls := make(map[int]*toolCallAccumulator) // key: index，跨 chunk 累积工具调用
 
 	for scanner.Scan() {

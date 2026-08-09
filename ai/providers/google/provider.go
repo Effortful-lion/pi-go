@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 const defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
@@ -124,9 +124,9 @@ func (m *model) chat(ctx context.Context, ctx2 ai.Context, out chan<- ai.Event) 
 
 // chatPart Gemini 消息中的 part（文本/函数调用/函数响应）。
 type chatPart struct {
-	Text             string              `json:"text,omitempty"`
-	FunctionCall     *funcCall           `json:"functionCall,omitempty"`
-	FunctionResponse *funcResponse       `json:"functionResponse,omitempty"`
+	Text             string        `json:"text,omitempty"`
+	FunctionCall     *funcCall     `json:"functionCall,omitempty"`
+	FunctionResponse *funcResponse `json:"functionResponse,omitempty"`
 }
 
 // funcCall 函数调用。

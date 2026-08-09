@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 var slog = lg.Module("[session]")

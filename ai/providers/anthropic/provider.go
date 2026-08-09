@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 const (
@@ -153,13 +153,13 @@ type toolDef struct {
 
 // chatRequest Anthropic Messages API 请求体。
 type chatRequest struct {
-	Model       string         `json:"model"`
-	MaxTokens   int            `json:"max_tokens"`
-	Stream      bool           `json:"stream"`
-	System      string         `json:"system,omitempty"`
-	Messages    []chatMessage  `json:"messages"`
-	Tools       []toolDef      `json:"tools,omitempty"`
-	Temperature float64        `json:"temperature,omitempty"`
+	Model       string        `json:"model"`
+	MaxTokens   int           `json:"max_tokens"`
+	Stream      bool          `json:"stream"`
+	System      string        `json:"system,omitempty"`
+	Messages    []chatMessage `json:"messages"`
+	Tools       []toolDef     `json:"tools,omitempty"`
+	Temperature float64       `json:"temperature,omitempty"`
 }
 
 // --- Anthropic SSE 响应类型 ---

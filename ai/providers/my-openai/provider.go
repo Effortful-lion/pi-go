@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/Effortful-lion/pi-go/ai"
-	"github.com/Effortful-lion/pi-go/lg"
+	lg "github.com/Effortful-lion/unibase/logx"
 )
 
 // 这是 openai风格 的本地提供商，兼容 openAI 的接口
