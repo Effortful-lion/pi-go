@@ -35,11 +35,6 @@ type Formatter interface {
 	Format(entry *Entry) string
 }
 
-// textFormatter 默认文本格式化器。
-type textFormatter struct{}
-
-func (textFormatter) Format(e *Entry) string { return e.Format() }
-
 // JSONFormatter 内置 JSON 格式化器。
 // 用法：writer.SetFormatter(lg.JSONFormatter)
 var JSONFormatter Formatter = jsonFormatter{}
