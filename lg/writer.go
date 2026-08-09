@@ -66,9 +66,10 @@ type ConsoleWriter struct {
 	mu        sync.Mutex
 }
 
-// NewConsoleWriter 创建一个控制台 Writer。
-// out: 输出目标，如 os.Stdout, os.Stderr
-// level: 最低输出级别
+// NewConsoleWriter creates a console writer.
+//
+// out: output target, such as os.Stdout or os.Stderr
+// level: minimum log level
 func NewConsoleWriter(out io.Writer, level Level) *ConsoleWriter {
 	if out == nil {
 		out = os.Stdout
@@ -81,8 +82,10 @@ func (w *ConsoleWriter) SetFormatter(f Formatter) {
 	w.formatter = f
 }
 
+// Level 返回该 Writer 接受的最低日志级别。
 func (w *ConsoleWriter) Level() Level { return w.level }
 
+// formatLine 将 Entry 格式化为一行文本。
 func (w *ConsoleWriter) formatLine(entry *Entry) string {
 	if w.formatter != nil {
 		return w.formatter.Format(entry)
@@ -90,6 +93,8 @@ func (w *ConsoleWriter) formatLine(entry *Entry) string {
 	return entry.Format()
 }
 
+// Write 写入一条日志记录。
+// 低于 w.level 的日志会被过滤。
 func (w *ConsoleWriter) Write(entry *Entry) error {
 	if entry.Level < w.level {
 		return nil
@@ -100,6 +105,7 @@ func (w *ConsoleWriter) Write(entry *Entry) error {
 	return err
 }
 
+// Close 关闭 Writer，释放资源。
 func (w *ConsoleWriter) Close() error { return nil }
 
 // ============================================================================
@@ -263,6 +269,7 @@ func pathDir(path string) string {
 	return ""
 }
 
+// Level 返回该 Writer 接受的最低日志级别。
 func (w *FileWriter) Level() Level { return w.level }
 
 // Write 写入一条日志记录。
@@ -358,6 +365,7 @@ func (w *FileWriter) SetRotateSize(size int64) {
 	w.rotateSize = size
 }
 
+// Close 关闭 FileWriter，释放底层文件句柄。
 func (w *FileWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -381,8 +389,8 @@ func NewMultiWriter(writers ...Writer) *MultiWriter {
 	return &MultiWriter{writers: writers}
 }
 
+// Level 返回所有子 Writer 中的最低级别。
 func (w *MultiWriter) Level() Level {
-	// 取所有子 Writer 中的最低级别（最宽松）
 	minLevel := LevelFatal
 	for _, wr := range w.writers {
 		if wr.Level() < minLevel {
@@ -392,6 +400,8 @@ func (w *MultiWriter) Level() Level {
 	return minLevel
 }
 
+// Write 将日志写入所有子 Writer。
+// 低于某个子 Writer 级别阈值的日志会被该子 Writer 过滤。
 func (w *MultiWriter) Write(entry *Entry) error {
 	for _, wr := range w.writers {
 		if entry.Level < wr.Level() {
@@ -402,6 +412,7 @@ func (w *MultiWriter) Write(entry *Entry) error {
 	return nil
 }
 
+// Close 关闭所有子 Writer。
 func (w *MultiWriter) Close() error {
 	for _, wr := range w.writers {
 		_ = wr.Close()
