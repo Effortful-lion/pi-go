@@ -265,6 +265,8 @@ func pathDir(path string) string {
 
 func (w *FileWriter) Level() Level { return w.level }
 
+// Write 写入一条日志记录。
+// 静态路径模式下，如果超过 rotateSize 阈值，会自动轮转并创建带序号的新文件。
 func (w *FileWriter) Write(entry *Entry) error {
 	if entry.Level < w.level {
 		return nil

@@ -50,7 +50,7 @@
 #### 测试覆盖
 
 - 总计 31 个测试，全部通过
-- 新增：`TestFieldsFormat_Sorted`、`TestJSONFormatter`、`TestFatalHook_Intercept`、`TestDisableCaller`、`TestSetFatalHook_Chain`、`TestFileWriter_SetRotateSize`、`TestFileWriter_SetRotateSize_Disabled`
+- 新增：`TestFieldsFormat_Sorted`、`TestConsoleWriter_WithJSONFormatter`、`TestFatalHook_Intercept`、`TestDisableCaller`、`TestSetFatalHook_Chain`、`TestFileWriter_SetRotateSize`、`TestFileWriter_SetRotateSize_Disabled`
 
 #### 使用方式示例
 
@@ -68,3 +68,14 @@ lg.New(fw).Module("user").Info("登录", lg.Fields{"uid": 123})
 userLog := lg.New(lg.NewFileWriter("logs/user.log", lg.LevelDebug)).Module("user")
 shopLog := lg.New(lg.NewFileWriter("logs/shop.log", lg.LevelWarn)).Module("shop")
 ```
+
+---
+
+## 2026-08-10
+
+### 文档化：补充 godoc 注释
+
+- 新增 `lg/doc.go`，补充包级别文档注释
+- 补充 `FileWriter.Write()` 的 godoc 注释
+- 所有导出标识符均具备完整的 godoc 文档注释
+
