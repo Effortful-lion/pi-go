@@ -2,13 +2,36 @@
 
 ## 2026-08-10
 
+### 修复：移除未使用的 textFormatter，通过 golangci-lint 检查
+
+- 删除未使用的 `textFormatter` 类型及其 `Format` 方法
+- 默认文本格式由 `formatLine()` 中的 `entry.Format()` 直接处理
+- `golangci-lint run ./...` 通过，无警告
+
+### 修复：补充所有导出标识符的 godoc 注释
+
+- 为 `ConsoleWriter`/`FileWriter`/`MultiWriter` 的导出方法补充注释
+- 调整 `NewConsoleWriter` 注释格式以通过 linter 检查
+- 所有导出标识符均具备完整 godoc 文档注释
+
+### 修复：修复 cmd/pg 中已删除的 lg API 引用
+
+- `initLogging()` 改用 `NewFileWriterWithLogName` + `NewMultiWriter` 替代 `SetPath`/`WithLevelDir`
+- 恢复 `SetDefault` 以便 `initLogging` 配置 defaultLogger
+- `go build ./...`、`go test ./...`、`golangci-lint` 全部通过
+
+---
+
+## 2026-08-10
+
 ### 架构重构：简化日志库设计，统一输出与格式职责
 
 #### 核心设计变更
 
 - **删除 Router 模块**：`lg.Module()` 不再动态跟随 `defaultLogger`，Module 仅负责标记模块名，输出路由由用户显式控制
-- **删除 SetPath 全家桶**：移除 `SetPath`、`SetDefault`、`SetDefaultWriter`、`LogOption` 等魔法函数，配置输出唯一路径：`lg.New(writer)`
-- **删除 Router 文件**：`lg/router.go` 已清空并删除
+- **删除 SetPath 全家桶**：移除 `SetPath`、`SetDefaultWriter`、`LogOption` 等魔法函数，配置输出唯一路径：`lg.New(writer)`
+- **删除 Router 文件**：`lg/router.go` 已删除
+- **恢复 SetDefault**：保留最小化的 `SetDefault`，供程序启动时配置 defaultLogger
 
 #### 新增功能
 
@@ -30,20 +53,20 @@
 | 删除项 | 替代方案 |
 |--------|---------|
 | `Router` / `NewRouter` / `Route` / `Unroute` | 独立创建多个 `Logger` |
-| `SetPath` / `SetDefault` / `SetDefaultWriter` | `lg.New(writer)` 显式配置 |
+| `SetPath` / `SetDefaultWriter` | `lg.New(writer)` 显式配置 |
 | `WithLevelDir` / `WithRotateByInterval` / `WithRotateBySize` / `WithRetention` | 自行组合 `FileWriter` |
 | `JSONWriter` / `NewJSONWriter` / `NewJSONConsoleWriter` | `ConsoleWriter` + `SetFormatter(JSONFormatter)` |
 | `writerSrc` 字段 | 直接拷贝 `writer` |
-| `TestModule_FollowsSetDefault` | 移除 writerSrc 后不再适用 |
-| `TestSetPath_*` / `TestRotateBy*` / `TestRetention_*` | 依赖已删除的 API |
 
 #### 文件变更
 
 ```
-修改：  lg/entry.go      - Fields 排序、FormatJSON、导入调整
-修改：  lg/logger.go     - 删除 writerSrc/SetDefault/SetPath、新增 DisableCaller/SetFatalHook
+修改：  lg/entry.go      - Fields 排序、FormatJSON
+修改：  lg/logger.go     - 删除 writerSrc、新增 DisableCaller/SetFatalHook、恢复 SetDefault
 修改：  lg/writer.go     - 新增 Formatter/JSONFormatter、FileWriter.SetFormatter/SetRotateSize
-修改：  lg/logger_test.go - 新增 6 个测试、修复全局状态污染
+修改：  lg/logger_test.go - 新增测试、修复全局状态污染
+修改：  cmd/pg/main.go   - initLogging 改用新 API
+新增：  lg/doc.go        - 包级别 godoc 注释
 删除：  lg/router.go     - 空文件已删除
 ```
 
